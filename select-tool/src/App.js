@@ -9,7 +9,7 @@ import './output.css';
 import 'react-calendar/dist/Calendar.css';
 
 function App() {
-  // First, define calendarStyles
+  // Update calendar styles to enforce consistent dimensions
   const calendarStyles = `
     .react-calendar {
       width: 100%;
@@ -18,11 +18,16 @@ function App() {
       border: 1px solid #ddd;
       font-family: inherit;
       line-height: 1.125em;
+      min-height: 580px; /* Enforce minimum height to accommodate 6 rows */
+    }
+    .react-calendar__viewContainer {
+      padding: 0.5em;
     }
     .react-calendar__tile {
       position: relative;
       height: 80px;
       padding: 1em 0.5em;
+      min-height: 80px; /* Enforce consistent tile height */
     }
     .react-calendar__month-view__days__day--weekend {
       color: inherit;
@@ -46,11 +51,12 @@ function App() {
   }, [calendarStyles]);
 
   const [currentUser, setCurrentUser] = useState(null);
-  const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
+  /* 
   const [hoveredDate, setHoveredDate] = useState(null);
   const [selectedDateDetails, setSelectedDateDetails] = useState(null);
   const [showAddDateModal, setShowAddDateModal] = useState(false); // Add new state for add date modal
   const [newDate, setNewDate] = useState(null); // New state for new date
+  */
   const [potentialDate, setPotentialDate] = useState(null); // Add new state for potential date selection
   
   const initialPoll = {
@@ -102,27 +108,29 @@ function App() {
     setPoll(updatedPoll);
   };
 
-  const addComment = (dateIndex) => {
-    const draftComment = commentDrafts[dateIndex] || '';
+  const addComment = (dateString) => {
+    const draftComment = commentDrafts[dateString] || '';
     if (draftComment.trim()) {
       const updatedPoll = {...poll};
-      updatedPoll.dates[dateIndex].comments.push({
-        author: currentUser,
-        text: draftComment
-      });
-      setPoll(updatedPoll);
-      // Clear only this date's comment draft
-      setCommentDrafts(prev => ({
-        ...prev,
-        [dateIndex]: ''
-      }));
+      const dateIndex = updatedPoll.dates.findIndex(d => d.date === dateString);
+      if (dateIndex !== -1) {
+        updatedPoll.dates[dateIndex].comments.push({
+          author: currentUser,
+          text: draftComment
+        });
+        setPoll(updatedPoll);
+        setCommentDrafts(prev => ({
+          ...prev,
+          [dateString]: ''
+        }));
+      }
     }
   };
 
-  const handleCommentSubmit = (dateIndex) => {
-    const draftComment = commentDrafts[dateIndex] || '';
+  const handleCommentSubmit = (dateString) => {
+    const draftComment = commentDrafts[dateString] || '';
     if (draftComment.trim()) {
-      addComment(dateIndex);
+      addComment(dateString);
     }
   };
 
@@ -142,38 +150,29 @@ function App() {
   }, [poll.dates]);
 
   const formatDateString = (date) => {
-    const correctedDate = new Date(date);
-    correctedDate.setDate(correctedDate.getDate() + 1);
-    return correctedDate.toISOString().split('T')[0];
-  };
-  
-  const addNewDate = (selectedDate) => {
-    // Create date object explicitly in UTC
-    const date = new Date(Date.UTC(
-      selectedDate.getFullYear(),
-      selectedDate.getMonth(),
-      selectedDate.getDate()
-    ));
-  
-    const formattedDate = formatDateString(date);
-    const dateExists = poll.dates.some(d => d.date === formattedDate);
-    
-    if (!dateExists) {
-      const updatedPoll = {...poll};
-      updatedPoll.dates.push({
-        date: formattedDate,
-        participants: [{ name: currentUser, available: true }],
-        comments: []
-      });
-      setPoll(updatedPoll);
-      setNewDate(null);
-    }
+    // Ensure we're working with a Date object
+    const d = new Date(date);
+    // Adjust for local timezone
+    const localDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return localDate.toISOString().split('T')[0];
   };
 
+  const formatAdjustedDate = (date) => {
+    if (!(date instanceof Date)) {
+      date = new Date(date); // Ensure it's a Date object
+    }
+    date.setDate(date.getDate() + 1); // Add 1 day
+    return date.toLocaleDateString();
+  };
+  
+  
   const deleteDate = (dateIndex) => {
-    const updatedPoll = {...poll};
-    updatedPoll.dates.splice(dateIndex, 1);
-    setPoll(updatedPoll);
+    setPoll(prevPoll => {
+      const updatedPoll = {...prevPoll};
+      updatedPoll.dates = [...prevPoll.dates];
+      updatedPoll.dates.splice(dateIndex, 1);
+      return updatedPoll;
+    });
   };
 
   const getDateEntry = (date) => {
@@ -201,136 +200,75 @@ function App() {
     );
   };
 
-  const renderCalendarView = () => (
-    <div className="relative">
-      <Calendar
-        defaultValue={defaultCalendarDate}
-        tileContent={renderCalendarTile}
-        className="w-full border rounded"
-        tileClassName={({ date }) => {
-          const dateEntry = getDateEntry(date);
-          return dateEntry 
-            ? 'proposed-date cursor-pointer' 
-            : '';
-        }}
-        onClickDay={(date) => {
-          const dateEntry = getDateEntry(date);
-          if (dateEntry) {
-            setSelectedDateDetails(dateEntry);
-          }
-        }}
-      />
-      
-      {/* Hover preview at bottom of screen */}
-      {hoveredDate && !selectedDateDetails && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-96 bg-white border rounded-lg shadow-lg p-4 z-10">
-          <h3 className="font-bold mb-2">
-            {new Date(hoveredDate.date).toLocaleDateString()}
-          </h3>
-          <div className="text-sm">
-            <strong>Participants:</strong>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {hoveredDate.participants.map(p => (
-                <span key={p.name} 
-                  className={`px-2 py-1 rounded text-xs ${
-                    p.available ? 'bg-green-100' : 'bg-red-100'
-                  }`}
-                >
-                  {p.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+  const renderAvailabilityButton = (dateEntry, index) => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) {
+      return (
+        <button 
+          className="px-3 py-1 rounded text-sm bg-gray-500 text-white"
+          onClick={() => toggleAvailability(index, currentUser)}
+        >
+          Not Responded
+        </button>
+      );
+    }
+    return (
+      <button 
+        className={`px-3 py-1 rounded text-sm ${
+          participant.available 
+            ? 'bg-green-500 text-white' 
+            : 'bg-red-500 text-white'
+        }`}
+        onClick={() => toggleAvailability(index, currentUser)}
+      >
+        {participant.available ? 'Available' : 'Unavailable'}
+      </button>
+    );
+  };
 
-      {/* Clicked date details modal */}
-      {selectedDateDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-20">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold">
-                {new Date(selectedDateDetails.date).toLocaleDateString()}
-              </h3>
-              <button
-                onClick={() => setSelectedDateDetails(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
-            </div>
+  const renderParticipantBadge = (participant) => {
+    let bgColor = 'bg-gray-500'; // Default for not responded
+    if (participant) {
+      bgColor = participant.available ? 'bg-green-100' : 'bg-red-100';
+    }
+    return (
+      <span 
+        key={participant.name}
+        className={`px-2 py-1 text-sm rounded ${bgColor}`}
+      >
+        {participant.name}
+      </span>
+    );
+  };
 
-            <div className="space-y-4">
-              <div></div>
-                <h4 className="font-medium mb-2">Participants:</h4>
-                <div className="flex flex-wrap gap-2">
-                  {selectedDateDetails.participants.map(participant => (
-                    <span
-                      key={participant.name}
-                      className={`px-2 py-1 rounded text-sm ${
-                        participant.available ? 'bg-green-100' : 'bg-red-100'
-                      }`}
-                    >
-                      {participant.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
+  const sortedDates = useMemo(() => {
+    return [...poll.dates].sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [poll.dates]);
 
-              <div>
-                <h4 className="font-medium mb-2">Comments:</h4>
-                {selectedDateDetails.comments.map((comment, index) => (
-                  <div key={index} className="bg-gray-50 p-2 rounded mb-2">
-                    <strong>{comment.author}:</strong> {comment.text}
-                  </div>
-                ))}
-                
-                <div className="flex mt-4">
-                  <input
-                    type="text"
-                    value={commentDrafts[selectedDateDetails.date] || ''}
-                    onChange={(e) => setCommentDrafts(prev => ({
-                      ...prev,
-                      [selectedDateDetails.date]: e.target.value
-                    }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const dateIndex = poll.dates.findIndex(d => d.date === selectedDateDetails.date);
-                        handleCommentSubmit(dateIndex);
-                      }
-                    }}
-                    placeholder="Add a comment"
-                    className="flex-grow border rounded p-2 mr-2"
-                  />
-                  <button
-                    onClick={() => {
-                      const dateIndex = poll.dates.findIndex(d => d.date === selectedDateDetails.date);
-                      handleCommentSubmit(dateIndex);
-                    }}
-                    className="bg-blue-500 text-white px-4 py-2 rounded"
-                  >
-                    Post
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-      )}
-    </div>
-  );
+
 
   const renderDateSelector = () => (
-    <div className="flex gap-6">
-      {/* Left side - Calendar */}
-      <div className="w-2/3">
+    <div className="flex gap-6 h-[calc(100vh-120px)]">
+      {/* Calendar section - fixed width */}
+      <div className="w-[600px] flex-shrink-0">
         <Calendar
-          className="w-full border rounded"
+          className="w-full border rounded shadow-sm bg-white"
+          defaultValue={defaultCalendarDate}
+          tileContent={renderCalendarTile}
           onClickDay={(date) => {
+            // Handle date selection consistently
             const formattedDate = formatDateString(date);
             const dateExists = poll.dates.some(d => d.date === formattedDate);
+            
             if (!dateExists) {
-              setPotentialDate({ date: formattedDate, originalDate: date });
+              setPotentialDate({
+                date: formattedDate,
+                originalDate: date
+              });
             }
+
+            console.log("Formatted date: ", formattedDate)
+            console.log("Potential date: ", potentialDate)
           }}
           tileClassName={({ date }) => {
             const dateEntry = getDateEntry(date);
@@ -343,57 +281,89 @@ function App() {
         />
       </div>
 
-      {/* Right side - Scrolling dates list */}
-      <div className="w-1/3 border rounded-lg bg-white p-4">
-        <h2 className="text-lg font-semibold mb-4">Proposed Dates</h2>
-        <div className="max-h-[600px] overflow-y-auto">
-          {poll.dates.map((dateEntry, index) => (
-            <div 
-              key={dateEntry.date}
-              className="mb-4 p-3 border rounded hover:bg-gray-50"
-            >
-              <div className="flex justify-between items-start">
-                <h3 className="font-medium">
-                  {new Date(dateEntry.date).toLocaleDateString()}
-                </h3>
-                <button 
-                  onClick={() => deleteDate(index)}
-                  className="text-red-500 hover:text-red-700"
-                  title="Delete Date"
+      {/* Dates list section - flexible width */}
+      <div className="w-[400px] flex-shrink-0">
+        <div className="border rounded-lg bg-white p-4 shadow-sm h-full overflow-y-auto">
+          <h2 className="text-lg font-semibold mb-4 sticky top-0 bg-white">Proposed Dates</h2>
+          <div className="space-y-4">
+            {sortedDates.map((dateEntry) => {
+              const dateIndex = poll.dates.findIndex(d => d.date === dateEntry.date);
+              return (
+                <div 
+                  key={dateEntry.date}
+                  className="mb-4 p-3 border rounded hover:bg-gray-50"
                 >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {dateEntry.participants.map(participant => (
-                  <span 
-                    key={participant.name}
-                    className={`px-2 py-1 text-sm rounded ${
-                      participant.available 
-                        ? 'bg-green-100' 
-                        : 'bg-red-100'
-                    }`}
-                  >
-                    {participant.name}
-                  </span>
-                ))}
-              </div>
-              {dateEntry.comments.length > 0 && (
-                <div className="mt-2 text-sm text-gray-600">
-                  {dateEntry.comments.length} comment(s)
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-medium">
+                      {formatAdjustedDate(dateEntry.date)}
+                    </h3>
+                    <div className="flex gap-2">
+                      {renderAvailabilityButton(dateEntry, dateIndex)}
+                      <button 
+                        onClick={() => deleteDate(dateIndex)}
+                        className="text-red-500 hover:text-red-700"
+                        title="Delete Date"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {dateEntry.participants.map(participant => (
+                      renderParticipantBadge(participant)
+                    ))}
+                  </div>
+
+                  {/* Comments section */}
+                  <div className="mt-3">
+                    {dateEntry.comments.length > 0 && (
+                      <div className="mb-2 space-y-1">
+                        {dateEntry.comments.map((comment, commentIndex) => (
+                          <div key={commentIndex} className="bg-gray-50 p-2 rounded text-sm">
+                            <strong>{comment.author}:</strong> {comment.text}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <div className="flex mt-2">
+                      <input 
+                        type="text"
+                        value={commentDrafts[dateEntry.date] || ''}
+                        onChange={(e) => setCommentDrafts(prev => ({
+                          ...prev,
+                          [dateEntry.date]: e.target.value
+                        }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleCommentSubmit(dateEntry.date);
+                          }
+                        }}
+                        placeholder="Add a comment"
+                        className="flex-grow border rounded p-1 text-sm mr-2"
+                      />
+                      <button 
+                        onClick={() => handleCommentSubmit(dateEntry.date)}
+                        className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
+                      >
+                        Post
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Keep the confirmation popup */}
-      {potentialDate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-30">
-          <div className="bg-white rounded-lg p-4 max-w-sm w-full">
+      {/* Popup section - always visible, shows content when needed */}
+      <div className="w-[300px] flex-shrink-0">
+        {potentialDate && (
+          <div className="border rounded-lg bg-white p-4 shadow-lg sticky top-4">
             <h3 className="text-lg font-semibold mb-4">
-              Add {new Date(potentialDate.date).toLocaleDateString()}?
+              Add {formatAdjustedDate(potentialDate.date)}?
             </h3>
             <div className="flex justify-end gap-4">
               <button
@@ -404,13 +374,17 @@ function App() {
               </button>
               <button
                 onClick={() => {
-                  const updatedPoll = {...poll};
-                  updatedPoll.dates.push({
-                    date: potentialDate.date,
-                    participants: [{ name: currentUser, available: true }],
-                    comments: []
-                  });
-                  setPoll(updatedPoll);
+                  setPoll(prevPoll => ({
+                    ...prevPoll,
+                    dates: [
+                      ...prevPoll.dates,
+                      {
+                        date: potentialDate.date,
+                        participants: [{ name: currentUser, available: true }],
+                        comments: []
+                      }
+                    ].sort((a, b) => new Date(a.date) - new Date(b.date))
+                  }));
                   setPotentialDate(null);
                 }}
                 className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
@@ -419,8 +393,8 @@ function App() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -429,34 +403,16 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  // Update the main return statement to use full width
+  // Update the main return statement to use fixed max-width
   return (
-    <div className="max-w-7xl mx-auto p-4">
+    <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <CalendarIcon className="mr-2" />
           <h1 className="text-2xl font-bold">{poll.title}</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-gray-600">
-            Logged in as: {currentUser}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
-              title="List View"
-            >
-              <List size={20} />
-            </button>
-            <button
-              onClick={() => setViewMode('calendar')}
-              className={`p-2 rounded ${viewMode === 'calendar' ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
-              title="Calendar View"
-            >
-              <CalendarIcon size={20} />
-            </button>
-          </div>
+        <div className="text-gray-600">
+          Logged in as: {currentUser}
         </div>
       </div>
 

@@ -256,6 +256,27 @@ function App() {
       background-color: #f3f4f6;
       border-radius: 8px;
     }
+
+    /* Add styles for vote counter */
+    .vote-counter {
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.8em;
+      color: #4B5563;
+      background-color: rgba(255, 255, 255, 0.9);
+      padding: 2px 6px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 1;
+      white-space: nowrap;
+    }
+
+    .react-calendar__tile:hover .vote-counter {
+      opacity: 1;
+    }
   `;
 
   // Then, use the useEffect hook
@@ -403,12 +424,17 @@ function App() {
     if (!dateEntry) return null;
 
     const isAvailable = dateEntry.participants.find(p => p.name === currentUser)?.available;
+    const availableCount = dateEntry.participants.filter(p => p.available).length;
+    const totalCount = dateEntry.participants.length;
     
     return (
       <div className="relative w-full h-full">
         <div className={`absolute inset-0 ${
           isAvailable ? 'bg-green-200' : 'bg-red-200'
         } opacity-50`} />
+        <div className="vote-counter" data-testid="vote-counter">
+          {`${availableCount}/${totalCount} available`}
+        </div>
         {dateEntry.comments.length > 0 && (
           <div className="absolute bottom-0 right-0 w-2 h-2 bg-blue-500 rounded-full mr-1 mb-1" />
         )}

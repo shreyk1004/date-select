@@ -262,6 +262,43 @@ function App() {
     .react-calendar__tile:hover .vote-counter {
       opacity: 1;
     }
+
+    /* Remove all .proposed-date related styles as we're not using that class anymore */
+
+    /* Add higher specificity for tile backgrounds */
+    .react-calendar__tile .bg-green-300 {
+      background-color: rgb(134, 239, 172) !important;
+    }
+    
+    .react-calendar__tile .bg-red-300 {
+      background-color: rgb(252, 165, 165) !important;
+    }
+
+    /* Add styles for colored tiles */
+    .react-calendar__tile.date-green {
+      background-color: #86efac !important;
+      border: 2px solid #22c55e !important;
+      color: white !important;
+    }
+    
+    .react-calendar__tile.date-yellow {
+      background-color: #fde047 !important;
+      border: 2px solid #eab308 !important;
+      color: black !important;
+    }
+    
+    .react-calendar__tile.date-red {
+      background-color: #fca5a5 !important;
+      border: 2px solid #ef4444 !important;
+      color: black !important;
+    }
+
+    /* Make sure the abbr (date number) inherits the color */
+    .react-calendar__tile.date-green abbr,
+    .react-calendar__tile.date-yellow abbr,
+    .react-calendar__tile.date-red abbr {
+      color: inherit;
+    }
   `;
 
   // Then, use the useEffect hook
@@ -413,24 +450,15 @@ function App() {
     const totalCount = dateEntry.participants.length;
     const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
     
-    const bgColor = availabilityRatio > 0.6 ? 'bg-green-300' : 'bg-red-300';
-    console.log(`Date ${date.toISOString().split('T')[0]} color: ${bgColor} (ratio: ${availabilityRatio})`);
-  
+    // Return just the content, Calendar component will handle the container
     return (
-      <div className={`relative w-full h-full flex flex-col justify-between transition-all ${bgColor}`}>     
-        {/* Indicator for comments */}
+      <div className="relative w-full h-full flex flex-col justify-between">
         {dateEntry.comments.length > 0 && (
-          <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full" />
+          <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full z-10" />
         )}
-        
-        {/* Availability Count Display */}
-        <div className="vote-counter flex flex-col items-center z-10 relative">
+        <div className="vote-counter flex flex-col items-center z-10">
           <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
-          <div className="text-xs text-gray-600 mt-1">{`c${availabilityRatio > 0.6 ? '1' : '2'}`}</div>
         </div>
-        
-        {/* Ensures React dynamically controls the background color */}
-        <div className={`absolute inset-0 transition-all ${bgColor}`} />
       </div>
     );
   };
@@ -490,6 +518,18 @@ function App() {
           className="w-full h-full border rounded shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
           tileContent={renderCalendarTile}
+          tileClassName={({ date }) => {
+            const dateEntry = getDateEntry(date);
+            if (!dateEntry) return null;
+            
+            const availableCount = dateEntry.participants.filter(p => p.available).length;
+            const totalCount = dateEntry.participants.length;
+            const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
+            
+            if (availabilityRatio > 0.6) return 'date-green';
+            if (availabilityRatio >= 0.4) return 'date-yellow';
+            return 'date-red';
+          }}
           onClickDay={(date) => {
             // Handle date selection consistently
             const formattedDate = formatDateString(date);
@@ -502,10 +542,6 @@ function App() {
               });
             }
 
-          }}
-          tileClassName={({ date }) => {
-            const dateEntry = getDateEntry(date);
-            return dateEntry ? 'proposed-date cursor-not-allowed' : 'cursor-pointer';
           }}
           tileDisabled={({ date }) => {
             const dateEntry = getDateEntry(date);

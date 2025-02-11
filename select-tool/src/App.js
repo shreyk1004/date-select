@@ -9,7 +9,6 @@ import './output.css';
 import 'react-calendar/dist/Calendar.css';
 
 function App() {
-  // Update calendar styles to enforce consistent dimensions
   const calendarStyles = `
     .react-calendar {
       width: 100%;
@@ -18,19 +17,75 @@ function App() {
       border: 1px solid #ddd;
       font-family: inherit;
       line-height: 1.125em;
-      min-height: 580px; /* Enforce minimum height to accommodate 6 rows */
+      height: 650px; /* Increased height */
+      display: flex;
+      flex-direction: column;
+      padding: 1em; /* Add overall padding */
     }
+    
+    /* Fix month view header */
+    .react-calendar__navigation {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1em; /* Add more space below navigation */
+      min-height: 44px;
+      padding: 0 1em; /* Add horizontal padding */
+    }
+    
+    .react-calendar__navigation button {
+      min-width: 90px; /* Increase minimum width */
+      padding: 0 1em;  /* Add padding */
+      background: none;
+      font-size: 0.9em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .react-calendar__viewContainer {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 520px; /* Enforce minimum height */
+    }
+    .react-calendar__year-view,
+    .react-calendar__decade-view,
+    .react-calendar__century-view {
       padding: 0.5em;
+    }
+    .react-calendar__month-view {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .react-calendar__month-view__weekdays {
+      text-align: center;
+      text-transform: uppercase;
+      font-weight: bold;
+      font-size: 0.8em;
+    }
+    .react-calendar__month-view__days {
+      display: grid !important;
+      grid-template-columns: repeat(7, 1fr);
+      grid-template-rows: repeat(6, minmax(80px, 1fr));
+      flex: 1;
     }
     .react-calendar__tile {
       position: relative;
-      height: 80px;
-      padding: 1em 0.5em;
-      min-height: 80px; /* Enforce consistent tile height */
+      height: auto !important;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      padding: 0.5em;
+      border-right: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
+      transition: background-color 0.2s;
     }
-    .react-calendar__month-view__days__day--weekend {
-      color: inherit;
+    .react-calendar__month-view__weekdays__weekday {
+      padding: 0.5em;
+      border-right: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
     }
     .react-calendar__tile:enabled:hover,
     .react-calendar__tile:enabled:focus {
@@ -39,6 +94,43 @@ function App() {
     .react-calendar__tile.proposed-date {
       border: 2px solid #10B981;
       background-color: #D1FAE5;
+    }
+    .react-calendar__tile--now {
+      background: none;
+    }
+    .react-calendar__tile--now abbr {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background-color: #3b82f6;
+      color: white;
+    }
+    .react-calendar__tile:enabled:hover {
+      background-color: #f3f4f6;
+      transition: background-color 0.2s;
+    }
+    .react-calendar__tile:enabled:active,
+    .react-calendar__tile:enabled:focus {
+      background-color: #e5e7eb;
+    }
+    .react-calendar__tile.proposed-date {
+      background-color: #D1FAE5;
+      border: none;
+      position: relative;
+    }
+    .react-calendar__tile.proposed-date::after {
+      content: '';
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      right: 4px;
+      bottom: 4px;
+      border: 2px solid #10B981;
+      border-radius: 4px;
+      pointer-events: none;
     }
   `;
 
@@ -249,10 +341,10 @@ function App() {
 
   const renderDateSelector = () => (
     <div className="flex gap-6 h-[calc(100vh-120px)]">
-      {/* Calendar section - fixed width */}
-      <div className="w-[600px] flex-shrink-0">
+      {/* Calendar section - increased width */}
+      <div className="w-[700px] h-[650px] flex-shrink-0">
         <Calendar
-          className="w-full border rounded shadow-sm bg-white"
+          className="w-full h-full border rounded shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
           tileContent={renderCalendarTile}
           onClickDay={(date) => {

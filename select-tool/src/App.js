@@ -11,64 +11,96 @@ import 'react-calendar/dist/Calendar.css';
 function App() {
   const calendarStyles = `
     .react-calendar {
-      width: 100%;
-      max-width: none;
+      width: 700px !important; /* Force fixed width */
       background: white;
       border: 1px solid #ddd;
       font-family: inherit;
       line-height: 1.125em;
-      height: 650px; /* Increased height */
+      height: 650px;
       display: flex;
       flex-direction: column;
-      padding: 1em; /* Add overall padding */
+      padding: 1em;
     }
     
-    /* Fix month view header */
+    /* Customize navigation layout */
     .react-calendar__navigation {
       display: flex;
+      justify-content: center;
       align-items: center;
-      margin-bottom: 1em; /* Add more space below navigation */
-      min-height: 44px;
-      padding: 0 1em; /* Add horizontal padding */
+      margin-bottom: 1em;
+      height: 44px;
+      position: relative;
     }
     
     .react-calendar__navigation button {
-      min-width: 90px; /* Increase minimum width */
-      padding: 0 1em;  /* Add padding */
+      min-width: 44px;
       background: none;
-      font-size: 0.9em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-size: 1em;
+      padding: 0;
     }
 
+    /* Hide year navigation buttons */
+    .react-calendar__navigation__prev2-button,
+    .react-calendar__navigation__next2-button {
+      display: none;
+    }
+
+    /* Center and style month label */
+    .react-calendar__navigation__label {
+      font-weight: bold;
+      text-align: center;
+      text-transform: capitalize;
+      pointer-events: none;
+      flex: 0 1 auto;
+      padding: 0 1em;
+      font-size: 1.1em;
+    }
+
+    /* Position month navigation buttons */
+    .react-calendar__navigation__prev-button,
+    .react-calendar__navigation__next-button {
+      position: absolute;
+    }
+
+    .react-calendar__navigation__prev-button {
+      left: 1em;
+    }
+
+    .react-calendar__navigation__next-button {
+      right: 1em;
+    }
+
+    /* Ensure view container takes remaining space */
     .react-calendar__viewContainer {
       flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 520px; /* Enforce minimum height */
+      min-height: 520px;
+      width: 100%;
     }
+
+    .react-calendar__month-view {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Force consistent grid layout */
+    .react-calendar__month-view__days {
+      display: grid !important;
+      grid-template-columns: repeat(7, 1fr);
+      grid-template-rows: repeat(6, minmax(80px, 1fr));
+      width: 100%;
+      aspect-ratio: 7/6;
+    }
+
     .react-calendar__year-view,
     .react-calendar__decade-view,
     .react-calendar__century-view {
       padding: 0.5em;
-    }
-    .react-calendar__month-view {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
     }
     .react-calendar__month-view__weekdays {
       text-align: center;
       text-transform: uppercase;
       font-weight: bold;
       font-size: 0.8em;
-    }
-    .react-calendar__month-view__days {
-      display: grid !important;
-      grid-template-columns: repeat(7, 1fr);
-      grid-template-rows: repeat(6, minmax(80px, 1fr));
-      flex: 1;
     }
     .react-calendar__tile {
       position: relative;
@@ -131,6 +163,98 @@ function App() {
       border: 2px solid #10B981;
       border-radius: 4px;
       pointer-events: none;
+    }
+
+    /* Navigation styles for different views */
+    .react-calendar__navigation {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 1em;
+      height: 44px;
+      position: relative;
+    }
+    
+    /* Enable month label click in month view */
+    .react-calendar__navigation__label {
+      font-weight: bold;
+      text-align: center;
+      text-transform: capitalize;
+      flex: 0 1 auto;
+      padding: 0 1em;
+      font-size: 1.1em;
+      pointer-events: auto; /* Enable clicks */
+      cursor: pointer;
+    }
+
+    /* Hide year buttons only in month view */
+    .react-calendar__navigation button.react-calendar__navigation__prev2-button,
+    .react-calendar__navigation button.react-calendar__navigation__next2-button {
+      display: none;
+    }
+
+    /* Show year buttons in year view */
+    .react-calendar__year-view .react-calendar__navigation button.react-calendar__navigation__prev2-button,
+    .react-calendar__year-view .react-calendar__navigation button.react-calendar__navigation__next2-button {
+      display: block;
+      position: absolute;
+    }
+
+    /* Position navigation buttons */
+    .react-calendar__navigation__prev-button,
+    .react-calendar__navigation__next-button {
+      position: absolute;
+    }
+
+    .react-calendar__navigation__prev-button,
+    .react-calendar__navigation__prev2-button {
+      left: 1em;
+    }
+
+    .react-calendar__navigation__next-button,
+    .react-calendar__navigation__next2-button {
+      right: 1em;
+    }
+
+    /* Style month selection view */
+    .react-calendar__year-view .react-calendar__tile {
+      height: 100px !important;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: none;
+      font-weight: 500;
+      font-size: 1em;
+    }
+
+    /* Style current month in year view */
+    .react-calendar__year-view .react-calendar__tile--now {
+      background: #3b82f6;
+      color: white;
+      border-radius: 8px;
+    }
+
+    .react-calendar__year-view .react-calendar__tile--now:enabled:hover,
+    .react-calendar__year-view .react-calendar__tile--now:enabled:focus {
+      background: #2563eb;
+    }
+
+    /* Remove the previous circle styling for month view */
+    .react-calendar__year-view .react-calendar__tile--now::before {
+      display: none;
+    }
+
+    .react-calendar__year-view .react-calendar__tile--now abbr {
+      position: static;
+      font-weight: 600;
+    }
+
+    /* Hover styles for other months */
+    .react-calendar__year-view .react-calendar__tile:enabled:hover,
+    .react-calendar__year-view .react-calendar__tile:enabled:focus {
+      background-color: #f3f4f6;
+      border-radius: 8px;
     }
   `;
 
@@ -341,8 +465,8 @@ function App() {
 
   const renderDateSelector = () => (
     <div className="flex gap-6 h-[calc(100vh-120px)]">
-      {/* Calendar section - increased width */}
-      <div className="w-[700px] h-[650px] flex-shrink-0">
+      {/* Calendar section with fixed dimensions */}
+      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">
         <Calendar
           className="w-full h-full border rounded shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
@@ -370,6 +494,10 @@ function App() {
             const dateEntry = getDateEntry(date);
             return !!dateEntry;
           }}
+          allowPartialRange={true}
+          minDetail="year"
+          maxDetail="month"
+          defaultView="month"
         />
       </div>
 

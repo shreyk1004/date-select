@@ -107,12 +107,13 @@ function App() {
       height: auto !important;
       display: flex;
       flex-direction: column;
-      justify-content: flex-start;
+      justify-content: space-between;  /* Changed from flex-start */
       align-items: center;
       padding: 0.5em;
       border-right: 1px solid #ddd;
       border-bottom: 1px solid #ddd;
       transition: background-color 0.2s;
+      min-height: 80px;  /* Added to ensure consistent height */
     }
     .react-calendar__month-view__weekdays__weekday {
       padding: 0.5em;
@@ -123,12 +124,10 @@ function App() {
     .react-calendar__tile:enabled:focus {
       background-color: #f3f4f6;
     }
-    .react-calendar__tile.proposed-date {
-      border: 2px solid #10B981;
-      background-color: #D1FAE5;
-    }
+    /* ALSO THIS PART */
+
     .react-calendar__tile--now {
-      background: none;
+      background: inherit;
     }
     .react-calendar__tile--now abbr {
       display: inline-flex;
@@ -148,22 +147,9 @@ function App() {
     .react-calendar__tile:enabled:focus {
       background-color: #e5e7eb;
     }
-    .react-calendar__tile.proposed-date {
-      background-color: #D1FAE5;
-      border: none;
-      position: relative;
-    }
-    .react-calendar__tile.proposed-date::after {
-      content: '';
-      position: absolute;
-      top: 4px;
-      left: 4px;
-      right: 4px;
-      bottom: 4px;
-      border: 2px solid #10B981;
-      border-radius: 4px;
-      pointer-events: none;
-    }
+
+    /* Trying to fix the variable tiling color as desired  */
+
 
     /* Navigation styles for different views */
     .react-calendar__navigation {
@@ -259,19 +245,18 @@ function App() {
 
     /* Add styles for vote counter */
     .vote-counter {
-      position: absolute;
-      bottom: 4px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 0.8em;
+      position: static;  /* Changed from absolute */
+      font-size: 0.75em;
       color: #4B5563;
       background-color: rgba(255, 255, 255, 0.9);
       padding: 2px 6px;
       border-radius: 4px;
+      margin-top: auto;  /* Push to bottom */
       opacity: 0;
       transition: opacity 0.2s;
       z-index: 1;
       white-space: nowrap;
+      transform: none;  /* Remove transform */
     }
 
     .react-calendar__tile:hover .vote-counter {
@@ -417,27 +402,35 @@ function App() {
     return poll.dates.find(d => d.date === formattedDate);
   };
 
+
   const renderCalendarTile = ({ date, view }) => {
     if (view !== 'month') return null;
     
     const dateEntry = getDateEntry(date);
     if (!dateEntry) return null;
-
-    const isAvailable = dateEntry.participants.find(p => p.name === currentUser)?.available;
+  
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
+    const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
     
+    const bgColor = availabilityRatio > 0.6 ? 'bg-green-300' : 'bg-red-300';
+    console.log(`Date ${date.toISOString().split('T')[0]} color: ${bgColor} (ratio: ${availabilityRatio})`);
+  
     return (
-      <div className="relative w-full h-full">
-        <div className={`absolute inset-0 ${
-          isAvailable ? 'bg-green-200' : 'bg-red-200'
-        } opacity-50`} />
-        <div className="vote-counter" data-testid="vote-counter">
-          {`${availableCount}/${totalCount} available`}
-        </div>
+      <div className={`relative w-full h-full flex flex-col justify-between transition-all ${bgColor}`}>     
+        {/* Indicator for comments */}
         {dateEntry.comments.length > 0 && (
-          <div className="absolute bottom-0 right-0 w-2 h-2 bg-blue-500 rounded-full mr-1 mb-1" />
+          <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full" />
         )}
+        
+        {/* Availability Count Display */}
+        <div className="vote-counter flex flex-col items-center z-10 relative">
+          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
+          <div className="text-xs text-gray-600 mt-1">{`c${availabilityRatio > 0.6 ? '1' : '2'}`}</div>
+        </div>
+        
+        {/* Ensures React dynamically controls the background color */}
+        <div className={`absolute inset-0 transition-all ${bgColor}`} />
       </div>
     );
   };
@@ -509,8 +502,6 @@ function App() {
               });
             }
 
-            console.log("Formatted date: ", formattedDate)
-            console.log("Potential date: ", potentialDate)
           }}
           tileClassName={({ date }) => {
             const dateEntry = getDateEntry(date);

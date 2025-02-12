@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect} from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { Calendar as CalendarIcon, PlusCircle, Trash2, List } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
@@ -10,6 +10,132 @@ import './index.css';
 import './output.css';
 
 import 'react-calendar/dist/Calendar.css';
+
+// Move utility functions before the DateEntry component
+const formatAdjustedDate = (date) => {
+  if (!(date instanceof Date)) {
+    date = new Date(date);
+  }
+  date.setDate(date.getDate() + 1);
+  return date.toLocaleDateString();
+};
+
+const DateEntry = memo(({ 
+  dateEntry, 
+  dateIndex, 
+  onDeleteDate, 
+  onToggleAvailability, 
+  onAddComment, 
+  currentUser 
+}) => {
+  const [commentDraft, setCommentDraft] = useState('');
+
+  const handleCommentSubmit = useCallback(() => {
+    if (commentDraft.trim()) {
+      onAddComment(dateEntry.date, commentDraft);
+      setCommentDraft('');
+    }
+  }, [dateEntry.date, commentDraft, onAddComment]);
+
+  // Add local helper functions
+  const renderAvailabilityButton = useCallback(() => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) {
+      return (
+        <button 
+          className="px-3 py-1 rounded text-sm bg-gray-500 text-white"
+          onClick={() => onToggleAvailability(dateIndex, currentUser)}
+        >
+          Not Responded
+        </button>
+      );
+    }
+    return (
+      <button 
+        className={`px-3 py-1 rounded text-sm ${
+          participant.available 
+            ? 'bg-green-500 text-white' 
+            : 'bg-red-500 text-white'
+        }`}
+        onClick={() => onToggleAvailability(dateIndex, currentUser)}
+      >
+        {participant.available ? 'Available' : 'Unavailable'}
+      </button>
+    );
+  }, [dateEntry.participants, currentUser, dateIndex, onToggleAvailability]);
+
+  const renderParticipantBadge = useCallback((participant) => {
+    let bgColor = participant.available ? 'bg-green-100' : 'bg-red-100';
+    return (
+      <span 
+        key={participant.name}
+        className={`px-2 py-1 text-sm rounded ${bgColor}`}
+      >
+        {participant.name}
+      </span>
+    );
+  }, []);
+
+  return (
+    <div className="p-4 rounded-lg hover:bg-gray-50 border-transparent shadow-sm">
+      <div className="flex justify-between items-start mb-2">
+        <h3 className="font-medium">
+          {formatAdjustedDate(dateEntry.date)}
+        </h3>
+        <div className="flex gap-2">
+          {renderAvailabilityButton()}
+          <button 
+            onClick={() => onDeleteDate(dateIndex)}
+            className="text-red-500 hover:text-red-700"
+            title="Delete Date"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1 mt-2">
+        {dateEntry.participants.map(participant => renderParticipantBadge(participant))}
+      </div>
+
+      {/* Comments section */}
+      <div className="mt-3">
+        {dateEntry.comments?.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {dateEntry.comments.map((comment, commentIndex) => (
+              <div key={commentIndex} className="bg-gray-50 p-2 rounded text-sm">
+                <strong>{comment.author}:</strong> {comment.text}
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div className="flex mt-2">
+          <input 
+            type="text"
+            value={commentDraft}
+            onChange={e => setCommentDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleCommentSubmit();
+              }
+            }}
+            placeholder="Add a comment"
+            className="flex-grow border rounded p-1 text-sm mr-2"
+          />
+          <button 
+            type="button"
+            onClick={handleCommentSubmit}
+            className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
+          >
+            Post
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 function App() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -115,7 +241,7 @@ function App() {
       height: auto !important;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;  /* Changed from flex-start */
+      justify-content: center;  /* Changed from space-between to center */
       align-items: center;
       padding: 0.5em;
       border-right: 1px solid #ddd;
@@ -125,6 +251,13 @@ function App() {
       overflow: visible; /* Add this */
       z-index: 1; /* Add this */
     }
+
+    /* Add styles for the date number */
+    .react-calendar__tile abbr {
+      font-weight: bold;  /* Make all dates bold */
+      margin-bottom: 0.5em; /* Add some space between date and vote counter */
+    }
+
     .react-calendar__month-view__weekdays__weekday {
       padding: 0.5em;
       border-right: 1px solid #ddd;
@@ -255,18 +388,19 @@ function App() {
 
     /* Add styles for vote counter */
     .vote-counter {
-      position: static;  /* Changed from absolute */
+      position: absolute;  /* Changed from static */
+      bottom: 0.5em;      /* Position at bottom */
+      left: 50%;          /* Center horizontally */
+      transform: translateX(-50%);
       font-size: 0.75em;
       color: #4B5563;
       background-color: rgba(255, 255, 255, 0.9);
       padding: 2px 6px;
       border-radius: 4px;
-      margin-top: auto;  /* Push to bottom */
       opacity: 0;
       transition: opacity 0.2s;
       z-index: 1;
       white-space: nowrap;
-      transform: none;  /* Remove transform */
     }
 
     .react-calendar__tile:hover .vote-counter {
@@ -398,13 +532,6 @@ function App() {
     return localDate.toISOString().split('T')[0];
   };
 
-  const formatAdjustedDate = (date) => {
-    if (!(date instanceof Date)) {
-      date = new Date(date); // Ensure it's a Date object
-    }
-    date.setDate(date.getDate() + 1); // Add 1 day
-    return date.toLocaleDateString();
-  };
   
   
   const deleteDate = (dateIndex) => {
@@ -441,89 +568,31 @@ function App() {
     );
   };
 
-  const renderAvailabilityButton = (dateEntry, index) => {
-    const participant = dateEntry.participants.find(p => p.name === currentUser);
-    if (!participant) {
-      return (
-        <button 
-          className="px-3 py-1 rounded text-sm bg-gray-500 text-white"
-          onClick={() => toggleAvailability(index, currentUser)}
-        >
-          Not Responded
-        </button>
-      );
-    }
-    return (
-      <button 
-        className={`px-3 py-1 rounded text-sm ${
-          participant.available 
-            ? 'bg-green-500 text-white' 
-            : 'bg-red-500 text-white'
-        }`}
-        onClick={() => toggleAvailability(index, currentUser)}
-      >
-        {participant.available ? 'Available' : 'Unavailable'}
-      </button>
-    );
-  };
-
-  const renderParticipantBadge = (participant) => {
-    let bgColor = 'bg-gray-500'; // Default for not responded
-    if (participant) {
-      bgColor = participant.available ? 'bg-green-100' : 'bg-red-100';
-    }
-    return (
-      <span 
-        key={participant.name}
-        className={`px-2 py-1 text-sm rounded ${bgColor}`}
-      >
-        {participant.name}
-      </span>
-    );
-  };
+  
 
   const sortedDates = useMemo(() => {
     return [...poll.dates].sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [poll.dates]);
 
-  // Add comment state
-  const [commentDrafts, setCommentDrafts] = useState({});
-
-  // Add comment handling functions
-  const handleCommentChange = (dateString, value) => {
-    setCommentDrafts(prev => ({
-      ...prev,
-      [dateString]: value
+  const handleAddComment = useCallback((dateString, text) => {
+    setPoll(prevPoll => ({
+      ...prevPoll,
+      dates: prevPoll.dates.map(date => 
+        date.date === dateString
+          ? {
+              ...date,
+              comments: [
+                ...(date.comments || []),
+                { author: currentUser, text }
+              ]
+            }
+          : date
+      )
     }));
-  };
-
-  const handleCommentSubmit = (dateString) => {
-    const text = commentDrafts[dateString]?.trim();
-    if (text) {
-      setPoll(prevPoll => {
-        const updatedDates = prevPoll.dates.map(date => 
-          date.date === dateString
-            ? {
-                ...date,
-                comments: [
-                  ...(date.comments || []),
-                  { author: currentUser, text }
-                ]
-              }
-            : date
-        );
-        return { ...prevPoll, dates: updatedDates };
-      });
-      // Clear the comment draft after posting
-      setCommentDrafts(prev => ({
-        ...prev,
-        [dateString]: ''
-      }));
-    }
-  };
+  }, [currentUser]);
 
   const renderDateSelector = () => (
-    <div className="flex gap-24 h-[calc(100vh-120px)]"> {/* Increased gap from 12 to 24 */}
+    <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
       {/* Calendar section */}
       <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
         <Calendar
@@ -620,85 +689,27 @@ function App() {
         )}
       </div>
 
-      {/* Dates list section - increased width */}
-      <div className="w-[500px] flex-shrink-0"> {/* Increased from 400px to 500px */}
+      {/* Dates list section */}
+      <div className="w-[500px] flex-grow"> {/* Changed from min/max-width to fixed width */}
         <div className="shadow-lg bg-white p-6 h-full overflow-y-auto rounded-lg"> {/* Removed border, increased padding */}
           <h2 className="text-xl font-semibold mb-8 sticky top-0 bg-white">Proposed Dates</h2> {/* Increased bottom margin */}
           <div className="space-y-8"> {/* Increased gap between date items */}
             {sortedDates.map((dateEntry) => {
               const dateIndex = poll.dates.findIndex(d => d.date === dateEntry.date);
               return (
-                <div 
+                <DateEntry
                   key={dateEntry.date}
-                  className="p-4 rounded-lg hover:bg-gray-50 border-transparent shadow-sm" /* Changed border color and added shadow */
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-medium">
-                      {formatAdjustedDate(dateEntry.date)}
-                    </h3>
-                    <div className="flex gap-2">
-                      {renderAvailabilityButton(dateEntry, dateIndex)}
-                      <button 
-                        onClick={() => deleteDate(dateIndex)}
-                        className="text-red-500 hover:text-red-700"
-                        title="Delete Date"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {dateEntry.participants.map(participant => (
-                      renderParticipantBadge(participant)
-                    ))}
-                  </div>
-
-                  {/* Add comments section */}
-                  <div className="mt-3">
-                    {dateEntry.comments?.length > 0 && (
-                      <div className="mb-2 space-y-1">
-                        {dateEntry.comments.map((comment, commentIndex) => (
-                          <div key={commentIndex} className="bg-gray-50 p-2 rounded text-sm">
-                            <strong>{comment.author}:</strong> {comment.text}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    <div className="flex mt-2">
-                      <input 
-                        type="text"
-                        value={commentDrafts[dateEntry.date] || ''}
-                        onChange={e => handleCommentChange(dateEntry.date, e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleCommentSubmit(dateEntry.date);
-                          }
-                        }}
-                        placeholder="Add a comment"
-                        className="flex-grow border rounded p-1 text-sm mr-2"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => handleCommentSubmit(dateEntry.date)}
-                        className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
-                      >
-                        Post
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  dateEntry={dateEntry}
+                  dateIndex={dateIndex}
+                  onDeleteDate={deleteDate}
+                  onToggleAvailability={toggleAvailability}
+                  onAddComment={handleAddComment}
+                  currentUser={currentUser}
+                />
               );
             })}
           </div>
         </div>
-      </div>
-
-      {/* Remove the old popup from the right column */}
-      <div className="w-[400px] flex-shrink-0">
-        {/* ...existing list section code... */}
       </div>
     </div>
   );

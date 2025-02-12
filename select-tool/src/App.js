@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useEffect} from 'react';
 import { Calendar as CalendarIcon, PlusCircle, Trash2, List } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import LandingPage from './components/LandingPage';
+import CreatePoll from './components/CreatePoll';
 import LoginPage from './components/LoginPage';
 import Calendar from 'react-calendar';
 
@@ -9,11 +12,13 @@ import './output.css';
 import 'react-calendar/dist/Calendar.css';
 
 function App() {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
   const calendarStyles = `
     .react-calendar {
       width: 700px !important; /* Force fixed width */
       background: white;
-      border: 1px solid #ddd;
+      border: transparent;
       font-family: inherit;
       line-height: 1.125em;
       height: 650px;
@@ -75,6 +80,7 @@ function App() {
       flex: 1;
       min-height: 520px;
       width: 100%;
+      border: 1px solid #ddd;
     }
 
     .react-calendar__month-view {
@@ -89,6 +95,8 @@ function App() {
       grid-template-rows: repeat(6, minmax(80px, 1fr));
       width: 100%;
       aspect-ratio: 7/6;
+      overflow: hidden; /* Add this */
+      border-bottom: 1px solid #ddd; /* Add this */
     }
 
     .react-calendar__year-view,
@@ -114,6 +122,8 @@ function App() {
       border-bottom: 1px solid #ddd;
       transition: background-color 0.2s;
       min-height: 80px;  /* Added to ensure consistent height */
+      overflow: visible; /* Add this */
+      z-index: 1; /* Add this */
     }
     .react-calendar__month-view__weekdays__weekday {
       padding: 0.5em;
@@ -332,46 +342,21 @@ function App() {
   }, [calendarStyles]);
 
   const [currentUser, setCurrentUser] = useState(null);
-  /* 
-  const [hoveredDate, setHoveredDate] = useState(null);
-  const [selectedDateDetails, setSelectedDateDetails] = useState(null);
-  const [showAddDateModal, setShowAddDateModal] = useState(false); // Add new state for add date modal
-  const [newDate, setNewDate] = useState(null); // New state for new date
-  */
   const [potentialDate, setPotentialDate] = useState(null); // Add new state for potential date selection
   
-  const initialPoll = {
-    id: 'unique-poll-id',
-    title: 'Team Retreat Planning',
-    creator: 'Alice',
-    dates: [
-      { 
-        date: '2025-03-03', 
-        participants: [
-          { name: 'Bob', available: true },
-          { name: 'Charlie', available: false }
-        ],
-        comments: [
-          { author: 'Charlie', text: 'This date conflicts with my conference' }
-        ]
-      },
-      { 
-        date: '2025-03-10', 
-        participants: [
-          { name: 'Bob', available: true },
-          { name: 'Charlie', available: true }
-        ],
-        comments: []
-      }
-    ]
+  const blankPoll = {
+    id: '',
+    title: '',
+    creator: '',
+    dates: []
   };
 
-  const [poll, setPoll] = useState(initialPoll);
-  const [commentDrafts, setCommentDrafts] = useState({});  // New state for comment drafts
+  const [poll, setPoll] = useState(blankPoll);
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
 
   const handleLogin = (username) => {
     setCurrentUser(username);
+    // No navigation needed here - it's handled in LoginPage
   };
 
   const toggleAvailability = (dateIndex, participantName) => {
@@ -388,32 +373,6 @@ function App() {
       });
     }
     setPoll(updatedPoll);
-  };
-
-  const addComment = (dateString) => {
-    const draftComment = commentDrafts[dateString] || '';
-    if (draftComment.trim()) {
-      const updatedPoll = {...poll};
-      const dateIndex = updatedPoll.dates.findIndex(d => d.date === dateString);
-      if (dateIndex !== -1) {
-        updatedPoll.dates[dateIndex].comments.push({
-          author: currentUser,
-          text: draftComment
-        });
-        setPoll(updatedPoll);
-        setCommentDrafts(prev => ({
-          ...prev,
-          [dateString]: ''
-        }));
-      }
-    }
-  };
-
-  const handleCommentSubmit = (dateString) => {
-    const draftComment = commentDrafts[dateString] || '';
-    if (draftComment.trim()) {
-      addComment(dateString);
-    }
   };
 
   const defaultCalendarDate = useMemo(() => {
@@ -471,14 +430,10 @@ function App() {
   
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
-    const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
     
     // Return just the content, Calendar component will handle the container
     return (
       <div className="relative w-full h-full flex flex-col justify-between">
-        {dateEntry.comments.length > 0 && (
-          <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full z-10" />
-        )}
         <div className="vote-counter flex flex-col items-center z-10">
           <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
         </div>
@@ -531,14 +486,48 @@ function App() {
     return [...poll.dates].sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [poll.dates]);
 
+  // Add comment state
+  const [commentDrafts, setCommentDrafts] = useState({});
 
+  // Add comment handling functions
+  const handleCommentChange = (dateString, value) => {
+    setCommentDrafts(prev => ({
+      ...prev,
+      [dateString]: value
+    }));
+  };
+
+  const handleCommentSubmit = (dateString) => {
+    const text = commentDrafts[dateString]?.trim();
+    if (text) {
+      setPoll(prevPoll => {
+        const updatedDates = prevPoll.dates.map(date => 
+          date.date === dateString
+            ? {
+                ...date,
+                comments: [
+                  ...(date.comments || []),
+                  { author: currentUser, text }
+                ]
+              }
+            : date
+        );
+        return { ...prevPoll, dates: updatedDates };
+      });
+      // Clear the comment draft after posting
+      setCommentDrafts(prev => ({
+        ...prev,
+        [dateString]: ''
+      }));
+    }
+  };
 
   const renderDateSelector = () => (
-    <div className="flex gap-6 h-[calc(100vh-120px)]">
-      {/* Calendar section with fixed dimensions */}
-      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden relative">
+    <div className="flex gap-24 h-[calc(100vh-120px)]"> {/* Increased gap from 12 to 24 */}
+      {/* Calendar section */}
+      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
         <Calendar
-          className="w-full h-full border rounded shadow-lg bg-white"
+          className="w-full h-full shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
           tileContent={renderCalendarTile}
           tileClassName={({ date }) => {
@@ -580,6 +569,9 @@ function App() {
           minDetail="year"
           maxDetail="month"
           defaultView="month"
+          activeStartDate={currentMonth}
+          onActiveStartDateChange={({ activeStartDate }) => setCurrentMonth(activeStartDate)}
+          value={null} // Add this to prevent auto-selection
         />
 
         {/* Reposition the popup */}
@@ -628,17 +620,17 @@ function App() {
         )}
       </div>
 
-      {/* Dates list section - flexible width */}
-      <div className="w-[400px] flex-shrink-0">
-        <div className="border rounded-lg bg-white p-4 shadow-sm h-full overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-4 sticky top-0 bg-white">Proposed Dates</h2>
-          <div className="space-y-4">
+      {/* Dates list section - increased width */}
+      <div className="w-[500px] flex-shrink-0"> {/* Increased from 400px to 500px */}
+        <div className="shadow-lg bg-white p-6 h-full overflow-y-auto rounded-lg"> {/* Removed border, increased padding */}
+          <h2 className="text-xl font-semibold mb-8 sticky top-0 bg-white">Proposed Dates</h2> {/* Increased bottom margin */}
+          <div className="space-y-8"> {/* Increased gap between date items */}
             {sortedDates.map((dateEntry) => {
               const dateIndex = poll.dates.findIndex(d => d.date === dateEntry.date);
               return (
                 <div 
                   key={dateEntry.date}
-                  className="mb-4 p-3 border rounded hover:bg-gray-50"
+                  className="p-4 rounded-lg hover:bg-gray-50 border-transparent shadow-sm" /* Changed border color and added shadow */
                 >
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="font-medium">
@@ -662,9 +654,9 @@ function App() {
                     ))}
                   </div>
 
-                  {/* Comments section */}
+                  {/* Add comments section */}
                   <div className="mt-3">
-                    {dateEntry.comments.length > 0 && (
+                    {dateEntry.comments?.length > 0 && (
                       <div className="mb-2 space-y-1">
                         {dateEntry.comments.map((comment, commentIndex) => (
                           <div key={commentIndex} className="bg-gray-50 p-2 rounded text-sm">
@@ -678,12 +670,10 @@ function App() {
                       <input 
                         type="text"
                         value={commentDrafts[dateEntry.date] || ''}
-                        onChange={(e) => setCommentDrafts(prev => ({
-                          ...prev,
-                          [dateEntry.date]: e.target.value
-                        }))}
-                        onKeyDown={(e) => {
+                        onChange={e => handleCommentChange(dateEntry.date, e.target.value)}
+                        onKeyDown={e => {
                           if (e.key === 'Enter') {
+                            e.preventDefault();
                             handleCommentSubmit(dateEntry.date);
                           }
                         }}
@@ -691,6 +681,7 @@ function App() {
                         className="flex-grow border rounded p-1 text-sm mr-2"
                       />
                       <button 
+                        type="button"
                         onClick={() => handleCommentSubmit(dateEntry.date)}
                         className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
                       >
@@ -712,28 +703,70 @@ function App() {
     </div>
   );
 
-  // Login check before main render
-  if (!currentUser) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
+  // Move your current poll view into PollView component
+  const PollView = () => {
+    const location = useLocation();
+    const pollData = location.state?.pollData;
+    
+    useEffect(() => {
+      if (pollData) {
+        // Only initialize the poll if it's empty or if it's a new poll
+        if (!poll.title || poll.id !== pollData.id) {
+          setPoll({
+            id: pollData.id,
+            title: pollData.title,
+            creator: currentUser,
+            dates: poll.dates || [] // Preserve existing dates if any
+          });
+        }
+      }
+    }, [pollData]); // Remove currentUser from dependencies
 
-  // Update the main return statement to use fixed max-width
-  return (
-    <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
-          <CalendarIcon className="mr-2" />
-          <h1 className="text-2xl font-bold">{poll.title}</h1>
+    if (!currentUser) {
+      return <Navigate to="/login" />;
+    }
+
+    if (!poll.title && !pollData) {
+      return <Navigate to="/dashboard" />;
+    }
+
+    return (
+      <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center">
+            <CalendarIcon className="mr-2" />
+            <h1 className="text-2xl font-bold">{poll.title}</h1>
+          </div>
+          <div className="text-gray-600">
+            Logged in as: {currentUser}
+          </div>
         </div>
-        <div className="text-gray-600">
-          Logged in as: {currentUser}
-        </div>
+        {renderDateSelector()}
       </div>
+    );
+  };
 
-      {renderDateSelector()}
-      
-      {/* Remove the viewMode toggle and list view since it's now integrated */}
-    </div>
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Change the root path logic */}
+        <Route path="/" element={
+          !currentUser ? <Navigate to="/login" /> : <Navigate to="/dashboard" />
+        } />
+        <Route path="/login" element={
+          currentUser ? <Navigate to="/dashboard" /> : <LoginPage onLogin={handleLogin} />
+        } />
+        <Route path="/dashboard" element={
+          !currentUser ? <Navigate to="/login" /> : <LandingPage />
+        } />
+        <Route path="/create" element={
+          !currentUser ? <Navigate to="/login" /> : <CreatePoll />
+        } />
+        <Route path="/poll/:id" element={
+          !currentUser ? <Navigate to="/login" /> : <PollView />
+        } />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

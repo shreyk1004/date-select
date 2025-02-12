@@ -1,11 +1,15 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 function LoginPage({ onLogin }) {
+  const navigate = useNavigate();
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const username = e.target.username.value.trim();
     if (username) {
       onLogin(username);
+      navigate('/dashboard'); // Change this to navigate to dashboard
     }
   };
 

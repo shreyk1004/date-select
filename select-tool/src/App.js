@@ -299,6 +299,28 @@ function App() {
     .react-calendar__tile.date-red abbr {
       color: inherit;
     }
+
+    /* Add styles for popup animation */
+    @keyframes genieEffect {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .date-popup {
+      position: absolute;
+      z-index: 50;
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      animation: genieEffect 0.2s ease-out;
+      border: 1px solid #e5e7eb;
+    }
   `;
 
   // Then, use the useEffect hook
@@ -346,6 +368,7 @@ function App() {
 
   const [poll, setPoll] = useState(initialPoll);
   const [commentDrafts, setCommentDrafts] = useState({});  // New state for comment drafts
+  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
 
   const handleLogin = (username) => {
     setCurrentUser(username);
@@ -513,7 +536,7 @@ function App() {
   const renderDateSelector = () => (
     <div className="flex gap-6 h-[calc(100vh-120px)]">
       {/* Calendar section with fixed dimensions */}
-      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">
+      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden relative">
         <Calendar
           className="w-full h-full border rounded shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
@@ -530,12 +553,18 @@ function App() {
             if (availabilityRatio >= 0.4) return 'date-yellow';
             return 'date-red';
           }}
-          onClickDay={(date) => {
+          onClickDay={(date, event) => {
             // Handle date selection consistently
             const formattedDate = formatDateString(date);
             const dateExists = poll.dates.some(d => d.date === formattedDate);
             
             if (!dateExists) {
+              // Calculate position relative to the clicked tile
+              const rect = event.target.getBoundingClientRect();
+              setPopupPosition({
+                x: rect.right + 10, // 10px offset from the right edge of the tile
+                y: rect.top
+              });
               setPotentialDate({
                 date: formattedDate,
                 originalDate: date
@@ -552,6 +581,51 @@ function App() {
           maxDetail="month"
           defaultView="month"
         />
+
+        {/* Reposition the popup */}
+        {potentialDate && (
+          <div 
+            className="date-popup"
+            style={{
+              left: `${popupPosition.x}px`,
+              top: `${popupPosition.y}px`,
+              position: 'fixed'
+            }}
+          >
+            <div className="p-4">
+              <h3 className="text-lg font-semibold mb-4">
+                Add {formatAdjustedDate(potentialDate.date)}?
+              </h3>
+              <div className="flex justify-end gap-4">
+                <button
+                  onClick={() => setPotentialDate(null)}
+                  className="px-4 py-2 text-gray-600 hover:text-red-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setPoll(prevPoll => ({
+                      ...prevPoll,
+                      dates: [
+                        ...prevPoll.dates,
+                        {
+                          date: potentialDate.date,
+                          participants: [{ name: currentUser, available: true }],
+                          comments: []
+                        }
+                      ].sort((a, b) => new Date(a.date) - new Date(b.date))
+                    }));
+                    setPotentialDate(null);
+                  }}
+                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                >
+                  Add Date
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Dates list section - flexible width */}
@@ -631,42 +705,9 @@ function App() {
         </div>
       </div>
 
-      {/* Popup section - always visible, shows content when needed */}
-      <div className="w-[300px] flex-shrink-0">
-        {potentialDate && (
-          <div className="border rounded-lg bg-white p-4 shadow-lg sticky top-4">
-            <h3 className="text-lg font-semibold mb-4">
-              Add {formatAdjustedDate(potentialDate.date)}?
-            </h3>
-            <div className="flex justify-end gap-4">
-              <button
-                onClick={() => setPotentialDate(null)}
-                className="px-4 py-2 text-gray-600 hover:text-red-500"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setPoll(prevPoll => ({
-                    ...prevPoll,
-                    dates: [
-                      ...prevPoll.dates,
-                      {
-                        date: potentialDate.date,
-                        participants: [{ name: currentUser, available: true }],
-                        comments: []
-                      }
-                    ].sort((a, b) => new Date(a.date) - new Date(b.date))
-                  }));
-                  setPotentialDate(null);
-                }}
-                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-              >
-                Add Date
-              </button>
-            </div>
-          </div>
-        )}
+      {/* Remove the old popup from the right column */}
+      <div className="w-[400px] flex-shrink-0">
+        {/* ...existing list section code... */}
       </div>
     </div>
   );

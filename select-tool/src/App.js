@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, memo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { Calendar as CalendarIcon, PlusCircle, Trash2, List } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
@@ -139,6 +139,7 @@ const DateEntry = memo(({
 
 function App() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const popupRef = useRef(null);
 
   const calendarStyles = `
     .react-calendar {
@@ -465,6 +466,22 @@ function App() {
       animation: genieEffect 0.2s ease-out;
       border: 1px solid #e5e7eb;
     }
+
+    /* Modify the existing abbr styles to only apply to current month */
+    .react-calendar__month-view__days__day abbr {
+      font-weight: normal;  /* Default weight for all dates */
+      margin-bottom: 0.5em;
+    }
+
+    /* Add specific style for current month dates */
+    .react-calendar__month-view__days__day:not(.react-calendar__month-view__days__day--neighboringMonth) abbr {
+      font-weight: bold;  /* Bold only for current month dates */
+    }
+
+    /* Style for neighboring month dates */
+    .react-calendar__month-view__days__day--neighboringMonth abbr {
+      color: #9CA3AF;  /* Light gray color for better visual distinction */
+    }
   `;
 
   // Then, use the useEffect hook
@@ -532,8 +549,22 @@ function App() {
     return localDate.toISOString().split('T')[0];
   };
 
-  
-  
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (potentialDate && popupRef.current && !popupRef.current.contains(event.target)) {
+        // Check if the click is not on a calendar tile
+        if (!event.target.closest('.react-calendar__tile')) {
+          setPotentialDate(null);
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [potentialDate]);
+
   const deleteDate = (dateIndex) => {
     setPoll(prevPoll => {
       const updatedPoll = {...prevPoll};
@@ -592,9 +623,9 @@ function App() {
   }, [currentUser]);
 
   const renderDateSelector = () => (
-    <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
+    <div className="flex gap-6 justify-center h-[calc(100vh-88px)]">
       {/* Calendar section */}
-      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
+      <div className="w-[700px] h-[650px] flex-shrink-0">
         <Calendar
           className="w-full h-full shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
@@ -646,6 +677,7 @@ function App() {
         {/* Reposition the popup */}
         {potentialDate && (
           <div 
+            ref={popupRef}
             className="date-popup"
             style={{
               left: `${popupPosition.x}px`,

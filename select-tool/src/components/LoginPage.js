@@ -9,29 +9,32 @@ function LoginPage({ onLogin }) {
     const username = e.target.username.value.trim();
     if (username) {
       onLogin(username);
-      navigate('/dashboard'); // Change this to navigate to dashboard
+      navigate('/dashboard');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">Welcome to Team Polling</h1>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="text"
-            name="username"
-            placeholder="Enter your name"
-            className="w-full border rounded p-2 mb-4"
-            required
-          />
-          <button
-            type="submit"
-            className="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-          >
-            Enter
-          </button>
-        </form>
+    <div className="min-h-screen w-full flex items-center justify-center bg-gray-100">
+      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow-lg">
+        <div className="flex flex-col items-center space-y-8">
+          <h1 className="text-3xl font-bold">Kalindar</h1>
+          
+          <form onSubmit={handleSubmit} className="w-full flex flex-col items-center space-y-6">
+            <input
+              type="text"
+              name="username"
+              placeholder="Enter your name"
+              className="w-3/4 border rounded-lg p-3 text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              required
+            />
+            <button
+              type="submit"
+              className="w-3/4 bg-blue-500 text-white px-4 py-3 rounded-lg hover:bg-red-400 transition-colors duration-200"
+            >
+              Enter
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

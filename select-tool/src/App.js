@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
-import { Calendar as CalendarIcon, PlusCircle, Trash2, List } from 'lucide-react';
+import { Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
 import CreatePoll from './components/CreatePoll';

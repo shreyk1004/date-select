@@ -1,14 +1,21 @@
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import LandingPage from './components/LandingPage';
-import CreatePoll from './components/CreatePoll';
-import LoginPage from './components/LoginPage';
 import Calendar from 'react-calendar';
+import { PollProvider } from './contexts/PollContext';
+
+// Import all components
+import LandingPage from './components/LandingPage';
+import PollCreate from './components/PollCreate';
+import PollJoin from './components/PollJoin';
+import PollLogin from './components/PollLogin';
+import PollRecover from './components/PollRecover';
+import AdminPanel from './components/AdminPanel';
+import NotFound from './components/NotFound';
+import SamplePoll from './components/SamplePoll';
 
 import './index.css'; 
 import './output.css';
-
 import 'react-calendar/dist/Calendar.css';
 
 // Move utility functions before the DateEntry component
@@ -492,7 +499,7 @@ function App() {
     return () => styleElement.remove();
   }, [calendarStyles]);
 
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser] = useState(null); // Remove setCurrentUser since it's unused
   const [potentialDate, setPotentialDate] = useState(null); // Add new state for potential date selection
   
   const blankPoll = {
@@ -504,11 +511,6 @@ function App() {
 
   const [poll, setPoll] = useState(blankPoll);
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
-
-  const handleLogin = (username) => {
-    setCurrentUser(username);
-    // No navigation needed here - it's handled in LoginPage
-  };
 
   const toggleAvailability = (dateIndex, participantName) => {
     const updatedPoll = {...poll};
@@ -623,9 +625,9 @@ function App() {
   }, [currentUser]);
 
   const renderDateSelector = () => (
-    <div className="flex gap-6 justify-center h-[calc(100vh-88px)]">
+    <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
       {/* Calendar section */}
-      <div className="w-[700px] h-[650px] flex-shrink-0">
+      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
         <Calendar
           className="w-full h-full shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
@@ -790,26 +792,31 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Change the root path logic */}
-        <Route path="/" element={
-          !currentUser ? <Navigate to="/login" /> : <Navigate to="/dashboard" />
-        } />
-        <Route path="/login" element={
-          currentUser ? <Navigate to="/dashboard" /> : <LoginPage onLogin={handleLogin} />
-        } />
-        <Route path="/dashboard" element={
-          !currentUser ? <Navigate to="/login" /> : <LandingPage />
-        } />
-        <Route path="/create" element={
-          !currentUser ? <Navigate to="/login" /> : <CreatePoll />
-        } />
-        <Route path="/poll/:id" element={
-          !currentUser ? <Navigate to="/login" /> : <PollView />
-        } />
-      </Routes>
-    </BrowserRouter>
+    <PollProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Main routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/poll/create" element={<PollCreate />} />
+          <Route path="/poll/join" element={<PollJoin />} />
+          <Route path="/poll/recover" element={<PollRecover />} />
+          
+          {/* Sample poll route */}
+          <Route path="/poll/test/entry" element={<SamplePoll />} />
+          
+          {/* Poll interaction routes */}
+          <Route path="/poll/:id" element={<PollLogin />} />
+          <Route path="/poll/:id/entry" element={<PollView />} />
+          <Route path="/poll/:id/admin" element={<AdminPanel />} />
+          <Route path="/poll/:id/view" element={<SamplePoll />} />
+          <Route path="/poll/:id/blank" element={<SamplePoll />} /> {/* Add new route */}
+          
+          {/* 404 handling */}
+          <Route path="/404" element={<NotFound />} />
+          <Route path="*" element={<Navigate to="/404" />} />
+        </Routes>
+      </BrowserRouter>
+    </PollProvider>
   );
 }
 

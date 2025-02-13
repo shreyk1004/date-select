@@ -60,23 +60,18 @@ function AdminPanel() {
 
   const handleGoToPoll = () => {
     const adminName = localStorage.getItem('adminName');
-    console.log("Admin name from storage:", adminName); // Debug log
-
     if (!adminName) {
-      console.log("No admin name found, redirecting to create");
       navigate('/poll/create');
       return;
     }
 
-    console.log("Navigating to blank poll with admin:", adminName); // Debug log
     navigate(`/poll/${pollId}/blank`, { 
       state: { 
-        isAdmin: true,
         adminName: adminName,
-        pollTitle: 'New Poll',
+        isAdmin: true,
         freshPoll: true
       },
-      replace: true
+      replace: true 
     });
   };
 

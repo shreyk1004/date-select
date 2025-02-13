@@ -13,6 +13,7 @@ import PollRecover from './components/PollRecover';
 import AdminPanel from './components/AdminPanel';
 import NotFound from './components/NotFound';
 import SamplePoll from './components/SamplePoll';
+import BlankPoll from './components/BlankPoll';
 
 import './index.css'; 
 import './output.css';
@@ -809,7 +810,7 @@ function App() {
           <Route path="/poll/:id/entry" element={<PollView />} />
           <Route path="/poll/:id/admin" element={<AdminPanel />} />
           <Route path="/poll/:id/view" element={<SamplePoll />} />
-          <Route path="/poll/:id/blank" element={<SamplePoll />} /> {/* Add new route */}
+          <Route path="/poll/:id/blank" element={<BlankPoll />} />
           
           {/* 404 handling */}
           <Route path="/404" element={<NotFound />} />

@@ -8,7 +8,7 @@ function AdminPanel() {
   const navigate = useNavigate();
   const { currentPoll, checkAdminToken } = usePoll();
   const [adminToken, setAdminToken] = useState(location.state?.adminToken || '');
-  const [isVerified, setIsVerified] = useState(false);
+  const [isVerified, setIsVerified] = useState(!!location.state?.isVerified);
   const [error, setError] = useState('');
 
   // Add useEffect to auto-verify if admin token is in localStorage
@@ -19,6 +19,13 @@ function AdminPanel() {
       setIsVerified(true);
     }
   }, [pollId, checkAdminToken]);
+
+  // Skip verification if we came directly from poll creation
+  useEffect(() => {
+    if (location.state?.isVerified) {
+      setIsVerified(true);
+    }
+  }, [location.state]);
 
   const verifyToken = () => {
     if (checkAdminToken(pollId, adminToken)) {

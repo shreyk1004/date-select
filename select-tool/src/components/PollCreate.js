@@ -12,26 +12,30 @@ function PollCreate() {
     email: ''
   });
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     const pollId = `poll-${Date.now()}`;
     
-    // Save admin token
-    setAdminToken(pollId, formData.adminToken);
+    // Save the admin token and name in localStorage
+    localStorage.setItem('adminToken', formData.adminToken);
+    localStorage.setItem('adminName', formData.username);
     
-    // Create poll data
-    const pollData = {
-      id: pollId,
-      creator: formData.username,
-      adminToken: formData.adminToken,
-      email: formData.email || null,
-      created: new Date().toISOString(),
-      status: 'active'
-    };
+    // Save to PollContext
+    setAdminToken(pollId, formData.adminToken);
 
-    // Navigate to admin view with the token
+    // Navigate directly to admin panel with auto-verification
     navigate(`/poll/${pollId}/admin`, {
-      state: { adminToken: formData.adminToken }
+      state: {
+        pollData: {
+          id: pollId,
+          title: formData.username,
+          creator: formData.username,
+          adminKey: formData.adminToken
+        },
+        adminToken: formData.adminToken,
+        isVerified: true
+      },
+      replace: true
     });
   };
 

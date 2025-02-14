@@ -13,7 +13,7 @@ function SamplePoll() {
   const { state } = location;
 
   // Get admin name from state or fallback to localStorage
-  const currentUser = state?.adminName || localStorage.getItem('adminName') || getPollSession('test');
+  const [currentUser] = useState(location.state?.username || 'Anonymous');
 
   // Initialize local poll based on state
   const [localPoll, setLocalPoll] = useState(() => {

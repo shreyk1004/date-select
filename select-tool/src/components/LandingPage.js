@@ -5,9 +5,14 @@ function LandingPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-md">
-        <h1 className="text-3xl font-bold mb-6 text-center">Poll Hub</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-6 flex items-center justify-center gap-1">
+          Poll
+          <span className="bg-orange-500 text-black px-2.5 py-1 rounded-md">
+            hub
+          </span>
+        </h1>
         <div className="space-y-4">
           <button
             onClick={() => navigate('/poll/create')}

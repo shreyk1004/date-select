@@ -53,7 +53,7 @@ function SamplePoll() {
     if (pollId) {  // Only update poll if we have an ID
       setPoll(pollId, updatedPoll);
     }
-  }, [setPoll]);  // Remove pollId from dependencies
+  }, [setPoll, pollId]);  // Added pollId to dependencies
 
   useEffect(() => {
     if (!currentUser) {

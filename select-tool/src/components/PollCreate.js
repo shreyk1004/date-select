@@ -28,7 +28,6 @@ function PollCreate() {
       state: {
         pollData: {
           id: pollId,
-          title: formData.username,
           creator: formData.username,
           adminKey: formData.adminToken
         },

@@ -10,6 +10,23 @@ function AdminPanel() {
   const [adminToken, setAdminToken] = useState(location.state?.adminToken || '');
   const [isVerified, setIsVerified] = useState(!!location.state?.isVerified);
   const [error, setError] = useState('');
+  const [pollTitle, setPollTitle] = useState(() => 
+    localStorage.getItem(`pollTitle_${pollId}`) || ''
+  );
+  const [titleError, setTitleError] = useState('');  // Add this line
+  const [presetNames, setPresetNames] = useState(() => 
+    JSON.parse(localStorage.getItem(`presetNames_${pollId}`)) || ['John', 'Alice', 'Bob']
+  );
+  const [blockedDates, setBlockedDates] = useState(() =>
+    JSON.parse(localStorage.getItem(`blockedDates_${pollId}`)) || []
+  );
+  const [pollOpen, setPollOpen] = useState(() =>
+    JSON.parse(localStorage.getItem(`pollOpen_${pollId}`)) ?? true
+  );
+  const [usageLimit, setUsageLimit] = useState(() =>
+    parseInt(localStorage.getItem(`usageLimit_${pollId}`)) || 1
+  );
+  const [adminName] = useState(localStorage.getItem('adminName') || 'Anonymous');
 
   // Add useEffect to auto-verify if admin token is in localStorage
   useEffect(() => {
@@ -38,19 +55,12 @@ function AdminPanel() {
   };
 
   // NEW: Admin Enhancements State
-  const [presetNames, setPresetNames] = useState(['John', 'Alice', 'Bob']); // initial presets
   const [newPreset, setNewPreset] = useState('');
-  const [blockedDates, setBlockedDates] = useState([]); // list of blocked date strings
   const [selectedBlockDate, setSelectedBlockDate] = useState(null);
-  const [pollOpen, setPollOpen] = useState(true);
-  const [usageLimit, setUsageLimit] = useState(1);
-  const [newParticipant, setNewParticipant] = useState('');
 
-  // Add helper to format a given date string to YYYY-MM-DD format
+  // Update formatDateString to handle dates consistently
   function formatDateString(date) {
-    const d = new Date(date);
-    const localDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-    return localDate.toISOString().split('T')[0];
+    return date.toISOString().split('T')[0];
   }
 
   // NEW: Preset Names Management Handlers
@@ -78,7 +88,7 @@ function AdminPanel() {
   // NEW: Date Blocking Controls Handlers
   const handleBlockDate = (date) => {
     const formatted = formatDateString(date);
-    if(window.confirm(`Block date ${formatted}?`)) {
+    if(window.confirm(`Block date ${new Date(formatted + 'T00:00:00').toLocaleDateString()}?`)) {
       setBlockedDates([...blockedDates, formatted]);
     }
   };
@@ -89,16 +99,17 @@ function AdminPanel() {
     }
   };
 
-  // NEW: Manual User Management Handler
-  const handleAddParticipant = () => {
-    const trimmed = newParticipant.trim();
-    if(trimmed) {
-      if(window.confirm(`Add participant "${trimmed}"?`)) {
-        // Update currentPoll participants as needed. For demo, you might call a context update.
-      }
-      setNewParticipant('');
-    }
+  const handleTitleSave = () => {
+    localStorage.setItem(`pollTitle_${pollId}`, pollTitle);
   };
+
+  // Add effect to save settings whenever they change
+  useEffect(() => {
+    localStorage.setItem(`presetNames_${pollId}`, JSON.stringify(presetNames));
+    localStorage.setItem(`blockedDates_${pollId}`, JSON.stringify(blockedDates));
+    localStorage.setItem(`pollOpen_${pollId}`, JSON.stringify(pollOpen));
+    localStorage.setItem(`usageLimit_${pollId}`, usageLimit.toString());
+  }, [pollId, presetNames, blockedDates, pollOpen, usageLimit]);
 
   if (!isVerified) {
     return (
@@ -129,6 +140,11 @@ function AdminPanel() {
   }
 
   const handleGoToPoll = () => {
+    if (!pollTitle.trim()) {
+      setTitleError('Please enter a poll title before proceeding');
+      return;
+    }
+
     const adminName = localStorage.getItem('adminName');
     if (!adminName) {
       navigate('/poll/create');
@@ -139,7 +155,14 @@ function AdminPanel() {
       state: { 
         adminName: adminName,
         isAdmin: true,
-        freshPoll: true
+        freshPoll: true,
+        pollTitle: pollTitle,
+        pollSettings: {
+          presetNames,
+          blockedDates,
+          pollOpen,
+          usageLimit
+        }
       },
       replace: true 
     });
@@ -147,54 +170,51 @@ function AdminPanel() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-start mb-8">
         <h1 className="text-2xl font-bold">Admin Controls</h1>
-        <div className="text-sm text-gray-500">
-          Admin Token: {adminToken}
+        <div className="text-right">
+          <div className="text-sm text-gray-500 mb-1">
+            Admin Token: {adminToken}
+          </div>
+          <div className="text-sm text-gray-500">
+            Admin: {adminName}
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-6">
-        <section className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Poll Settings</h2>
-          <div className="space-y-4">
-            <button className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
-              Close Poll
+      {/* Poll Title Section */}
+      <section className="bg-white p-6 rounded-lg shadow mb-6">
+        <h2 className="text-xl font-semibold mb-4">Poll Title</h2>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={pollTitle}
+              onChange={(e) => {
+                setPollTitle(e.target.value);
+                setTitleError('');  // Clear error when typing
+              }}
+              placeholder="Enter poll title"
+              className={`flex-1 border rounded p-2 ${titleError ? 'border-red-500' : ''}`}
+            />
+            <button
+              onClick={handleTitleSave}
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Save Title
             </button>
           </div>
-        </section>
+          {titleError && (
+            <p className="text-red-500 text-sm">{titleError}</p>
+          )}
+        </div>
+      </section>
 
-        <section className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Manage Users</h2>
-          <div className="space-y-2">
-            {currentPoll?.participants?.map(user => (
-              <div key={user.name} className="flex justify-between items-center p-2 hover:bg-gray-50">
-                <span>{user.name}</span>
-                <button className="text-red-500 hover:text-red-700">Remove</button>
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* Remove Manage Users and Manage Dates sections */}
 
-        <section className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">Manage Dates</h2>
-          <div className="space-y-2">
-            {currentPoll?.dates?.map(date => (
-              <div key={date.date} className="flex justify-between items-center p-2 hover:bg-gray-50">
-                <span>{new Date(date.date).toLocaleDateString()}</span>
-                <div className="space-x-2">
-                  <button className="text-yellow-500 hover:text-yellow-700">Block</button>
-                  <button className="text-red-500 hover:text-red-700">Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* NEW: Preset Names Management Section */}
+      {/* Preset Names Management Section */}
       <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Preset Names Management</h2>
+        <h2 className="text-xl font-semibold mb-4">User Management</h2>
         <div className="mb-4">
           <input
             type="text"
@@ -233,13 +253,17 @@ function AdminPanel() {
         </ul>
       </section>
 
-      {/* NEW: Date Blocking Controls Section */}
+      {/* Date Blocking Controls Section */}
       <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Date Blocking Controls</h2>
+        <h2 className="text-xl font-semibold mb-4">Date Blocking</h2>
         <p className="mb-2">Select a date to block/unblock:</p>
         <input
           type="date"
-          onChange={(e) => setSelectedBlockDate(new Date(e.target.value))}
+          onChange={(e) => {
+            // Use the formatAdjustedDate approach
+            const selectedDate = new Date(e.target.value + 'T00:00:00');
+            setSelectedBlockDate(selectedDate);
+          }}
           className="border p-2 rounded"
         />
         <button
@@ -251,7 +275,7 @@ function AdminPanel() {
         <ul className="mt-4">
           {blockedDates.map(date => (
             <li key={date} className="flex items-center justify-between p-2 border-b">
-              <span>{date}</span>
+              <span>{new Date(date + 'T00:00:00').toLocaleDateString()}</span>
               <button onClick={() => handleUnblockDate(date)} className="text-green-500">
                 Unblock
               </button>
@@ -260,7 +284,7 @@ function AdminPanel() {
         </ul>
       </section>
 
-      {/* NEW: Results Preview Section */}
+      {/* Results Preview Section */}
       <section className="bg-white p-6 rounded-lg shadow mb-6">
         <h2 className="text-xl font-semibold mb-4">Poll Results Preview</h2>
         <div className="p-4 border rounded">
@@ -270,7 +294,7 @@ function AdminPanel() {
         </div>
       </section>
 
-      {/* NEW: Poll Settings Toggles Section */}
+      {/* Poll Settings Toggles Section */}
       <section className="bg-white p-6 rounded-lg shadow mb-6">
         <h2 className="text-xl font-semibold mb-4">Poll Settings</h2>
         <div className="flex items-center mb-4">
@@ -294,41 +318,14 @@ function AdminPanel() {
         </div>
       </section>
 
-      {/* NEW: Manual User Management Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Manual User Management</h2>
-        <div className="mb-4">
-          <input
-            type="text"
-            value={newParticipant}
-            onChange={(e) => setNewParticipant(e.target.value)}
-            placeholder="Add participant name"
-            className="border p-2 rounded mr-2"
-          />
-          <button onClick={handleAddParticipant} className="bg-blue-500 text-white px-4 py-2 rounded">
-            Add Participant
-          </button>
-        </div>
-        <ul>
-          {currentPoll?.participants?.map(user => (
-            <li key={user.name} className="flex justify-between items-center p-2 border-b">
-              <span>{user.name}</span>
-              <button
-                onClick={() => {
-                  if(window.confirm(`Remove participant "${user.name}"?`)){
-                    // Implement removal logic here (e.g., update context)
-                  }
-                }}
-                className="text-red-500"
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <div className="mt-6">
+      {/* Footer Actions */}
+      <div className="mt-6 flex justify-between items-center">
+        <button
+          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+        >
+          Close Poll
+        </button>
+        
         <button
           onClick={handleGoToPoll}
           className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"

@@ -226,9 +226,7 @@ function BlankPoll() {
 
   // Format date properly for display
   const formatAdjustedDate = (date) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() + 1);
-    return d.toLocaleDateString();
+    return new Date(date + 'T00:00:00').toLocaleDateString();
   };
 
   // Update the CSS styles for calendar tiles
@@ -263,10 +261,24 @@ function BlankPoll() {
       .react-calendar__tile.date-red abbr {
         position: relative;
       }
+
+      .react-calendar__tile.date-blocked {
+        background-color: #e5e7eb !important;
+        cursor: not-allowed !important;
+        color: #9ca3af !important;
+      }
+
+      .react-calendar__tile.date-blocked:hover {
+        background-color: #e5e7eb !important;
+      }
     `;
     document.head.appendChild(style);
     return () => style.remove();
   }, []);
+
+  const [blockedDates] = useState(() => 
+    JSON.parse(localStorage.getItem(`blockedDates_${pollId}`)) || []
+  );
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
@@ -288,7 +300,11 @@ function BlankPoll() {
             defaultValue={defaultCalendarDate}
             tileContent={renderCalendarTile}
             tileClassName={({ date }) => {
+              const dateStr = formatDateString(date);
               const dateEntry = getDateEntry(date);
+              const isBlocked = blockedDates.includes(dateStr);
+              
+              if (isBlocked) return 'date-blocked';
               if (!dateEntry) return null;
               
               const availableCount = dateEntry.participants.filter(p => p.available).length;
@@ -316,8 +332,8 @@ function BlankPoll() {
               }
             }}
             tileDisabled={({ date }) => {
-              const dateEntry = getDateEntry(date);
-              return !!dateEntry;
+              const dateStr = formatDateString(date);
+              return blockedDates.includes(dateStr) || !!getDateEntry(date);
             }}
             allowPartialRange={true}
             minDetail="year"
@@ -383,7 +399,10 @@ function BlankPoll() {
               {sortedDates.map((dateEntry, index) => (
                 <DateEntry
                   key={dateEntry.date}
-                  dateEntry={dateEntry}
+                  dateEntry={{
+                    ...dateEntry,
+                    date: dateEntry.date + 'T00:00:00' // Add time component for consistent display
+                  }}
                   dateIndex={index}
                   onDeleteDate={deleteDate}
                   onToggleAvailability={toggleAvailability}

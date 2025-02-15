@@ -99,9 +99,10 @@ function AdminPanel() {
     }
   };
 
-  const handleTitleSave = () => {
+  // Update useEffect to save title when it changes
+  useEffect(() => {
     localStorage.setItem(`pollTitle_${pollId}`, pollTitle);
-  };
+  }, [pollId, pollTitle]);
 
   // Add effect to save settings whenever they change
   useEffect(() => {
@@ -186,24 +187,16 @@ function AdminPanel() {
       <section className="bg-white p-6 rounded-lg shadow mb-6">
         <h2 className="text-xl font-semibold mb-4">Poll Title</h2>
         <div className="space-y-2">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={pollTitle}
-              onChange={(e) => {
-                setPollTitle(e.target.value);
-                setTitleError('');  // Clear error when typing
-              }}
-              placeholder="Enter poll title"
-              className={`flex-1 border rounded p-2 ${titleError ? 'border-red-500' : ''}`}
-            />
-            <button
-              onClick={handleTitleSave}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
-              Save Title
-            </button>
-          </div>
+          <input
+            type="text"
+            value={pollTitle}
+            onChange={(e) => {
+              setPollTitle(e.target.value);
+              setTitleError('');  // Clear error when typing
+            }}
+            placeholder="Enter poll title"
+            className={`w-full border rounded p-2 ${titleError ? 'border-red-500' : ''}`}
+          />
           {titleError && (
             <p className="text-red-500 text-sm">{titleError}</p>
           )}

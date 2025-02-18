@@ -204,6 +204,46 @@ function SamplePoll() {
     return { exists: true, available: participant.available };
   };
 
+  // Add the same helper functions
+  const isDateInDifferentMonth = (date) => {
+    const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const currentMonthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    return date < currentMonthStart || date > currentMonthEnd;
+  };
+
+  const showPopupForDate = (date, event, isExistingDate) => {
+    const rect = event.target.getBoundingClientRect();
+    const formattedDate = formatDateString(date);
+    
+    if (isExistingDate) {
+      const dateEntry = localPoll.dates.find(d => d.date === formattedDate);
+      setSelectedDate(dateEntry);
+      setSelectedDatePopup({
+        visible: true,
+        position: {
+          x: rect.right + 10,
+          y: rect.top
+        }
+      });
+    } else {
+      setPopupPosition({
+        x: rect.right + 10,
+        y: rect.top
+      });
+      setPotentialDate({
+        date: formattedDate,
+        originalDate: date
+      });
+    }
+  };
+
+  // Add this helper function for consistent date formatting
+  const formatAdjustedDate = (date) => {
+    const d = new Date(date);
+    // Don't adjust the date, just format it directly
+    return d.toLocaleDateString();
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
       <div className="flex items-center justify-between mb-4">
@@ -234,29 +274,15 @@ function SamplePoll() {
             onClickDay={(date, event) => {
               const formattedDate = formatDateString(date);
               const dateEntry = localPoll.dates.find(d => d.date === formattedDate);
-              
-              if (dateEntry) {
-                // Show availability popup for existing dates
-                const rect = event.target.getBoundingClientRect();
-                setSelectedDate(dateEntry);
-                setSelectedDatePopup({
-                  visible: true,
-                  position: {
-                    x: rect.right + 10,
-                    y: rect.top
-                  }
-                });
+
+              if (isDateInDifferentMonth(date)) {
+                // If date is in different month, wait for month transition
+                setTimeout(() => {
+                  showPopupForDate(date, event, !!dateEntry);
+                }, 100); // Small delay to allow month transition
               } else {
-                // Handle empty date click (existing code)
-                const rect = event.target.getBoundingClientRect();
-                setPopupPosition({
-                  x: rect.right + 10,
-                  y: rect.top
-                });
-                setPotentialDate({
-                  date: formattedDate,
-                  originalDate: date
-                });
+                // If date is in current month, show popup immediately
+                showPopupForDate(date, event, !!dateEntry);
               }
             }}
             value={null}
@@ -362,7 +388,7 @@ function SamplePoll() {
         >
           <div className="p-4">
             <h3 className="text-lg font-semibold mb-4">
-              Add {new Date(potentialDate.date).toLocaleDateString()}?
+              Add {new Date(potentialDate.date + 'T12:00:00').toLocaleDateString()}?
             </h3>
             <div className="flex justify-end gap-4">
               <button

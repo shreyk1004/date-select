@@ -182,11 +182,13 @@ function BlankPoll() {
     }));
   };
 
+  // Fix the handleAddComment function to use dateIndex properly
   const handleAddComment = useCallback((dateString, text) => {
     setPoll(prevPoll => ({
       ...prevPoll,
       dates: prevPoll.dates.map(date => 
-        date.date === dateString
+        // Remove the T00:00:00 from the comparison
+        date.date === dateString.split('T')[0]
           ? {
               ...date,
               comments: [
@@ -315,6 +317,40 @@ function BlankPoll() {
     JSON.parse(localStorage.getItem(`blockedDates_${pollId}`)) || []
   );
 
+  // Add a helper function to check if a date is in a different month
+  const isDateInDifferentMonth = (date) => {
+    const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const currentMonthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    return date < currentMonthStart || date > currentMonthEnd;
+  };
+
+  // Add a function to show popup after month change
+  const showPopupForDate = (date, event, isExistingDate) => {
+    const rect = event.target.getBoundingClientRect();
+    const formattedDate = formatDateString(date);
+    
+    if (isExistingDate) {
+      const dateEntry = poll.dates.find(d => d.date === formattedDate);
+      setSelectedDate(dateEntry);
+      setSelectedDatePopup({
+        visible: true,
+        position: {
+          x: rect.right + 10,
+          y: rect.top
+        }
+      });
+    } else {
+      setPopupPosition({
+        x: rect.right + 10,
+        y: rect.top
+      });
+      setPotentialDate({
+        date: formattedDate,
+        originalDate: date
+      });
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
       <div className="flex items-center justify-between mb-4">
@@ -353,29 +389,18 @@ function BlankPoll() {
             onClickDay={(date, event) => {
               const formattedDate = formatDateString(date);
               const dateEntry = poll.dates.find(d => d.date === formattedDate);
-              
-              if (dateEntry) {
-                // Handle click on existing date
-                const rect = event.target.getBoundingClientRect();
-                setSelectedDate(dateEntry);
-                setSelectedDatePopup({
-                  visible: true,
-                  position: {
-                    x: rect.right + 10,
-                    y: rect.top
-                  }
-                });
-              } else if (!blockedDates.includes(formattedDate)) {
-                // Handle click on empty date
-                const rect = event.target.getBoundingClientRect();
-                setPopupPosition({
-                  x: rect.right + 10,
-                  y: rect.top
-                });
-                setPotentialDate({
-                  date: formattedDate,
-                  originalDate: date
-                });
+              const isBlocked = blockedDates.includes(formattedDate);
+
+              if (isBlocked) return;
+
+              if (isDateInDifferentMonth(date)) {
+                // If date is in different month, wait for month transition
+                setTimeout(() => {
+                  showPopupForDate(date, event, !!dateEntry);
+                }, 100); // Small delay to allow month transition
+              } else {
+                // If date is in current month, show popup immediately
+                showPopupForDate(date, event, !!dateEntry);
               }
             }}
             tileDisabled={({ date }) => {

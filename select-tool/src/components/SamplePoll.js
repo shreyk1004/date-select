@@ -388,7 +388,7 @@ function SamplePoll() {
         >
           <div className="p-4">
             <h3 className="text-lg font-semibold mb-4">
-              Add {new Date(potentialDate.date + 'T12:00:00').toLocaleDateString()}?
+              Add {formatAdjustedDate(potentialDate.date)}?
             </h3>
             <div className="flex justify-end gap-4">
               <button

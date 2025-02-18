@@ -103,6 +103,28 @@ function BlankPoll() {
   const [potentialDate, setPotentialDate] = useState(null);
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
 
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDatePopup, setSelectedDatePopup] = useState({ visible: false, position: { x: 0, y: 0 } });
+  const selectedDateRef = useRef(null);
+
+  // Add click outside handler for the new popup
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (selectedDateRef.current && !selectedDateRef.current.contains(event.target)) {
+        setSelectedDatePopup(prev => ({ ...prev, visible: false }));
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Add new helper function to get participant status
+  const getParticipantStatus = (dateEntry) => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) return { exists: false, available: false };
+    return { exists: true, available: participant.available };
+  };
+
   // Calendar helper functions
   const formatDateString = (date) => {
     const d = new Date(date);
@@ -185,11 +207,23 @@ function BlankPoll() {
 
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
+    const userStatus = getParticipantStatus(dateEntry);
     
     return (
-      <div className="vote-counter">
-        <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
-      </div>
+      <>
+        <div className="vote-counter">
+          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
+        </div>
+        <div 
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full ${
+            userStatus.exists
+              ? userStatus.available
+                ? 'bg-green-500'
+                : 'bg-red-500'
+              : 'bg-gray-400'
+          }`}
+        />
+      </>
     );
   };
 
@@ -239,7 +273,8 @@ function BlankPoll() {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center; /* Center content vertically */
+        justify-content: center;
+        padding-top: 1rem; /* Add space for the indicator */
       }
 
       .react-calendar__tile abbr {
@@ -317,9 +352,21 @@ function BlankPoll() {
             }}
             onClickDay={(date, event) => {
               const formattedDate = formatDateString(date);
-              const dateExists = poll.dates.some(d => d.date === formattedDate);
+              const dateEntry = poll.dates.find(d => d.date === formattedDate);
               
-              if (!dateExists) {
+              if (dateEntry) {
+                // Handle click on existing date
+                const rect = event.target.getBoundingClientRect();
+                setSelectedDate(dateEntry);
+                setSelectedDatePopup({
+                  visible: true,
+                  position: {
+                    x: rect.right + 10,
+                    y: rect.top
+                  }
+                });
+              } else if (!blockedDates.includes(formattedDate)) {
+                // Handle click on empty date
                 const rect = event.target.getBoundingClientRect();
                 setPopupPosition({
                   x: rect.right + 10,
@@ -333,7 +380,7 @@ function BlankPoll() {
             }}
             tileDisabled={({ date }) => {
               const dateStr = formatDateString(date);
-              return blockedDates.includes(dateStr) || !!getDateEntry(date);
+              return blockedDates.includes(dateStr); // Only disable blocked dates
             }}
             allowPartialRange={true}
             minDetail="year"
@@ -343,6 +390,63 @@ function BlankPoll() {
             onActiveStartDateChange={({ activeStartDate }) => setCurrentMonth(activeStartDate)}
             value={null}
           />
+
+          {/* Add new popup for existing dates */}
+          {selectedDatePopup.visible && selectedDate && (
+            <div
+              ref={selectedDateRef}
+              className="date-popup shadow-lg bg-white p-4 rounded-lg"
+              style={{
+                position: 'fixed',
+                left: `${selectedDatePopup.position.x}px`,
+                top: `${selectedDatePopup.position.y}px`,
+                zIndex: 1000,
+                minWidth: '200px'
+              }}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">
+                  {new Date(selectedDate.date + 'T00:00:00').toLocaleDateString()}
+                </h3>
+                <button
+                  onClick={() => setSelectedDatePopup(prev => ({ ...prev, visible: false }))}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  const dateIndex = poll.dates.findIndex(d => d.date === selectedDate.date);
+                  if (dateIndex !== -1) {
+                    toggleAvailability(dateIndex, currentUser);
+                    // Update the selected date's participant status immediately
+                    setSelectedDate({
+                      ...selectedDate,
+                      participants: selectedDate.participants.map(p => 
+                        p.name === currentUser 
+                          ? { ...p, available: !p.available }
+                          : p
+                      )
+                    });
+                  }
+                }}
+                className={`w-full px-4 py-2 rounded text-white ${
+                  getParticipantStatus(selectedDate).exists
+                    ? getParticipantStatus(selectedDate).available
+                      ? 'bg-green-500 hover:bg-green-600'
+                      : 'bg-red-500 hover:bg-red-600'
+                    : 'bg-gray-500 hover:bg-gray-600'
+                }`}
+              >
+                {getParticipantStatus(selectedDate).exists
+                  ? getParticipantStatus(selectedDate).available
+                    ? 'Available'
+                    : 'Unavailable'
+                  : 'Not Responded'}
+              </button>
+            </div>
+          )}
 
           {/* Date add popup */}
           {potentialDate && (

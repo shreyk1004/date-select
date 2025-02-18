@@ -47,6 +47,11 @@ function SamplePoll() {
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
   const popupRef = useRef(null);
 
+  // Add new state for selected date popup
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDatePopup, setSelectedDatePopup] = useState({ visible: false, position: { x: 0, y: 0 } });
+  const selectedDateRef = useRef(null);
+
   // Update local poll when making changes
   const updatePoll = useCallback((updatedPoll) => {
     setLocalPoll(updatedPoll);
@@ -73,6 +78,17 @@ function SamplePoll() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Add click outside handler for the new popup
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (selectedDateRef.current && !selectedDateRef.current.contains(event.target)) {
+        setSelectedDatePopup(prev => ({ ...prev, visible: false }));
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Calendar tile content
   const tileContent = ({ date }) => {
     const dateStr = date.toISOString().split('T')[0];
@@ -82,11 +98,23 @@ function SamplePoll() {
 
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
+    const userStatus = getParticipantStatus(dateEntry);
     
     return (
-      <div className="vote-counter flex flex-col items-center z-10">
-        <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
-      </div>
+      <>
+        <div className="vote-counter flex flex-col items-center z-10">
+          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
+        </div>
+        <div 
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full ${
+            userStatus.available === null
+              ? 'bg-gray-400'
+              : userStatus.available
+                ? 'bg-green-500'
+                : 'bg-red-500'
+          }`}
+        />
+      </>
     );
   };
 
@@ -166,6 +194,16 @@ function SamplePoll() {
     updatePoll(updatedPoll);
   }, [localPoll, currentUser, updatePoll]);
 
+  // Update getParticipantStatus to include more information
+  const getParticipantStatus = (dateEntry) => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) {
+      const hasAnyParticipants = dateEntry.participants.some(p => p.name === currentUser);
+      return { exists: false, available: hasAnyParticipants ? false : null }; // null means no response yet
+    }
+    return { exists: true, available: participant.available };
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
       <div className="flex items-center justify-between mb-4">
@@ -195,9 +233,21 @@ function SamplePoll() {
             onActiveStartDateChange={({ activeStartDate }) => setCurrentMonth(activeStartDate)}
             onClickDay={(date, event) => {
               const formattedDate = formatDateString(date);
-              const dateExists = localPoll.dates.some(d => d.date === formattedDate);
+              const dateEntry = localPoll.dates.find(d => d.date === formattedDate);
               
-              if (!dateExists) {
+              if (dateEntry) {
+                // Show availability popup for existing dates
+                const rect = event.target.getBoundingClientRect();
+                setSelectedDate(dateEntry);
+                setSelectedDatePopup({
+                  visible: true,
+                  position: {
+                    x: rect.right + 10,
+                    y: rect.top
+                  }
+                });
+              } else {
+                // Handle empty date click (existing code)
                 const rect = event.target.getBoundingClientRect();
                 setPopupPosition({
                   x: rect.right + 10,
@@ -210,7 +260,72 @@ function SamplePoll() {
               }
             }}
             value={null}
+            tileDisabled={({ date }) => false} // Allow clicking on all dates
           />
+
+          {/* Add new popup for existing dates */}
+          {selectedDatePopup.visible && selectedDate && (
+            <div
+              ref={selectedDateRef}
+              className="date-popup shadow-lg bg-white p-4 rounded-lg"
+              style={{
+                position: 'fixed',
+                left: `${selectedDatePopup.position.x}px`,
+                top: `${selectedDatePopup.position.y}px`,
+                zIndex: 1000,
+                minWidth: '200px'
+              }}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">
+                  {new Date(selectedDate.date + 'T00:00:00').toLocaleDateString()}
+                </h3>
+                <button
+                  onClick={() => setSelectedDatePopup(prev => ({ ...prev, visible: false }))}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  const dateIndex = localPoll.dates.findIndex(d => d.date === selectedDate.date);
+                  if (dateIndex !== -1) {
+                    const status = getParticipantStatus(selectedDate);
+                    const newAvailability = status.available === null ? true : !status.available;
+                    
+                    handleToggleAvailability(dateIndex);
+                    // Update the selected date's participant status immediately
+                    setSelectedDate({
+                      ...selectedDate,
+                      participants: status.exists
+                        ? selectedDate.participants.map(p => 
+                            p.name === currentUser 
+                              ? { ...p, available: newAvailability }
+                              : p
+                          )
+                        : [...selectedDate.participants, { name: currentUser, available: newAvailability }]
+                    });
+                  }
+                }}
+                className={`w-full px-4 py-2 rounded text-white ${
+                  getParticipantStatus(selectedDate).available === null
+                    ? 'bg-gray-500 hover:bg-gray-600'
+                    : getParticipantStatus(selectedDate).available
+                      ? 'bg-green-500 hover:bg-green-600'
+                      : 'bg-red-500 hover:bg-red-600'
+                }`}
+              >
+                {getParticipantStatus(selectedDate).available === null
+                  ? 'Not Responded'
+                  : getParticipantStatus(selectedDate).available
+                    ? 'Available'
+                    : 'Unavailable'}
+              </button>
+            </div>
+          )}
+
+          {/* ...existing potentialDate popup... */}
         </div>
 
         {/* Dates list with interactive features */}

@@ -1,232 +1,93 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { usePoll } from '../contexts/PollContext';
 import { Calendar as CalendarIcon, Trash2 } from 'lucide-react';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
-import { 
-  getPoll, 
-  addDateToPoll, 
-  removeDateFromPoll, 
-  setAvailability, 
-  addComment,
-  initializeTestPoll 
-} from '../services/pollService';
 
 function SamplePoll() {
-  // Get all hooks at the top level
-  const { id } = useParams();
-  const location = useLocation();
   const navigate = useNavigate();
-  const pollId = id || 'test'; // Define pollId here so it can be used throughout
+  const location = useLocation();
+  const { id: pollId } = useParams();
+  const { getPoll, getPollSession, setPoll } = usePoll();
+  const { state } = location;
 
-  // All state hooks must be at the top level
-  const [username, setUsername] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [localPoll, setLocalPoll] = useState({ title: 'Poll', dates: [] });
+  // Get admin name from state or fallback to localStorage
+  const currentUser = state?.adminName || localStorage.getItem('adminName') || getPollSession('test');
+
+  // Initialize local poll based on state
+  const [localPoll, setLocalPoll] = useState(() => {
+    if (state?.freshPoll) {
+      return {
+        title: 'New Poll',
+        dates: []
+      };
+    }
+    return state?.isAdmin ? {
+      title: state.pollTitle || 'New Poll',
+      dates: []
+    } : getPoll('test');
+  });
+
+  // Prevent redirect to /poll/create when we have admin name
+  useEffect(() => {
+    if (!currentUser && !state?.isAdmin) {
+      navigate('/poll/create');
+    }
+  }, [currentUser, navigate, state?.isAdmin]);
+
+  // Add debug logging
+  useEffect(() => {
+    console.log('Current User:', currentUser);
+    console.log('State:', state);
+  }, [currentUser, state]);
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [potentialDate, setPotentialDate] = useState(null);
   const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+  const popupRef = useRef(null);
+
+  // Add new state for selected date popup
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedDatePopup, setSelectedDatePopup] = useState({ visible: false, position: { x: 0, y: 0 } });
-  
-  // Refs
-  const popupRef = useRef(null);
   const selectedDateRef = useRef(null);
 
-  // Load data from Supabase
+  // Update local poll when making changes
+  const updatePoll = useCallback((updatedPoll) => {
+    setLocalPoll(updatedPoll);
+    if (pollId) {  // Only update poll if we have an ID
+      setPoll(pollId, updatedPoll);
+    }
+  }, [setPoll, pollId]);  // Added pollId to dependencies
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // If this is the test poll, ensure it's initialized first
-        if (pollId === 'test') {
-          await initializeTestPoll();
-        }
-        
-        // Get username from state or localStorage
-        let currentUsername;
-        if (location.state?.username) {
-          currentUsername = location.state.username;
-          setUsername(currentUsername);
-        } else {
-          // Fall back to localStorage if not in state (e.g., if user refreshed page)
-          const storedUsername = localStorage.getItem(`poll_${pollId}_username`);
-          
-          if (storedUsername) {
-            currentUsername = storedUsername;
-            setUsername(storedUsername);
-          } else {
-            // If no username found, redirect to join page
-            navigate(`/poll/${pollId}/join`);
-            return;
-          }
-        }
+    if (!currentUser) {
+      navigate(state?.isAdmin ? `/poll/${pollId}/admin` : '/poll/test');
+    }
+  }, [currentUser, navigate, state?.isAdmin, pollId]);
 
-        // Fetch poll data from Supabase
-        const pollData = await getPoll(pollId);
-        
-        setLocalPoll({
-          id: pollData.id,
-          code: pollData.code,
-          title: pollData.title,
-          dates: pollData.dates || []
-        });
-
-        setIsLoading(false);
-      } catch (err) {
-        console.error('Error fetching poll data:', err);
-        
-        // Better error messaging for table not found issues
-        if (err.message.includes('does not exist')) {
-          setError(
-            `Database tables are not set up. Please run the SQL migrations in the Supabase SQL Editor. 
-            Error details: ${err.message}`
-          );
-        } else {
-          setError(`Error loading poll: ${err.message}`);
-        }
-        
-        setIsLoading(false);
+  // Add click-away listener
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (popupRef.current && !popupRef.current.contains(event.target)) {
+        setPotentialDate(null);
       }
     };
 
-    fetchData();
-  }, [pollId, location.state, navigate]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  // Helper functions
-  const formatDateString = (date) => {
-    return date.toISOString().split('T')[0];
-  };
-
-  const formatAdjustedDate = (date) => {
-    const d = new Date(date);
-    return d.toLocaleDateString();
-  };
-
-  const getParticipantStatus = (dateEntry) => {
-    if (!dateEntry || !dateEntry.participants) return { exists: false, available: null };
-    
-    const participant = dateEntry.participants.find(p => p.name === username);
-    if (!participant) {
-      return { exists: false, available: null }; // null means no response yet
+  // Add click outside handler for the new popup
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (selectedDateRef.current && !selectedDateRef.current.contains(event.target)) {
+        setSelectedDatePopup(prev => ({ ...prev, visible: false }));
+      }
     }
-    return { exists: true, available: participant.available };
-  };
-
-  const isDateInDifferentMonth = (date) => {
-    const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-    const currentMonthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-    return date < currentMonthStart || date > currentMonthEnd;
-  };
-
-  // Event handlers
-  const handleAddDate = async () => {
-    if (!potentialDate) return;
-    
-    try {
-      setIsLoading(true);
-      
-      // Add date to Supabase
-      await addDateToPoll(pollId, potentialDate.date, username);
-      
-      // Refresh the poll data
-      const updatedPoll = await getPoll(pollId);
-      setLocalPoll(updatedPoll);
-      
-      setPotentialDate(null);
-    } catch (err) {
-      console.error('Error adding date:', err);
-      setError(`Failed to add date: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteDate = async (dateString) => {
-    try {
-      setIsLoading(true);
-      
-      // Remove date from Supabase
-      await removeDateFromPoll(pollId, dateString);
-      
-      // Refresh the poll data
-      const updatedPoll = await getPoll(pollId);
-      setLocalPoll(updatedPoll);
-    } catch (err) {
-      console.error('Error removing date:', err);
-      setError(`Failed to remove date: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleToggleAvailability = async (dateString) => {
-    try {
-      setIsLoading(true);
-      
-      const dateEntry = localPoll.dates.find(d => d.date === dateString);
-      const userStatus = getParticipantStatus(dateEntry);
-      
-      // Set availability in Supabase (flip current status or set to true if new)
-      const newAvailability = userStatus.exists ? !userStatus.available : true;
-      await setAvailability(pollId, dateString, username, newAvailability);
-      
-      // Refresh the poll data
-      const updatedPoll = await getPoll(pollId);
-      setLocalPoll(updatedPoll);
-    } catch (err) {
-      console.error('Error setting availability:', err);
-      setError(`Failed to update availability: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleAddComment = async (dateString, text) => {
-    try {
-      setIsLoading(true);
-      
-      // Add comment to Supabase
-      await addComment(pollId, dateString, username, text);
-      
-      // Refresh the poll data
-      const updatedPoll = await getPoll(pollId);
-      setLocalPoll(updatedPoll);
-    } catch (err) {
-      console.error('Error adding comment:', err);
-      setError(`Failed to add comment: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const showPopupForDate = (date, event, isExistingDate) => {
-    const rect = event.target.getBoundingClientRect();
-    const formattedDate = formatDateString(date);
-    
-    if (isExistingDate) {
-      const dateEntry = localPoll.dates.find(d => d.date === formattedDate);
-      setSelectedDate(dateEntry);
-      setSelectedDatePopup({
-        visible: true,
-        position: {
-          x: rect.right + 10,
-          y: rect.top
-        }
-      });
-    } else {
-      setPopupPosition({
-        x: rect.right + 10,
-        y: rect.top
-      });
-      setPotentialDate({
-        date: formattedDate,
-        originalDate: date
-      });
-    }
-  };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Calendar tile content
   const tileContent = ({ date }) => {
@@ -266,68 +127,122 @@ function SamplePoll() {
     
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
-    const ratio = totalCount > 0 ? availableCount / totalCount : 0;
+    const ratio = availableCount / totalCount;
     
     if (ratio > 0.6) return 'date-green';
     if (ratio >= 0.4) return 'date-yellow';
     return 'date-red';
   };
 
-  // Add click-away listener for potential date popup
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (popupRef.current && !popupRef.current.contains(event.target)) {
-        setPotentialDate(null);
-      }
-    };
+  const formatDateString = (date) => {
+    return date.toISOString().split('T')[0];
+  };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Add click outside handler for the selected date popup
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (selectedDateRef.current && !selectedDateRef.current.contains(event.target)) {
-        setSelectedDatePopup(prev => ({ ...prev, visible: false }));
+  const handleAddDate = () => {
+    const updatedPoll = {...localPoll};
+    updatedPoll.dates = [
+      ...localPoll.dates,
+      {
+        date: potentialDate.date,
+        participants: [{ name: currentUser, available: true }],
+        comments: []
       }
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    updatePoll(updatedPoll);
+    setPotentialDate(null);
+  };
+
+  const handleDeleteDate = (dateIndex) => {
+    const updatedPoll = {...localPoll};
+    updatedPoll.dates.splice(dateIndex, 1);
+    updatePoll(updatedPoll);
+  };
+
+  const handleToggleAvailability = (dateIndex) => {
+    const updatedPoll = {...localPoll};
+    const dateEntry = updatedPoll.dates[dateIndex];
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    
+    if (!participant) {
+      // Initial click - set to available
+      dateEntry.participants.push({
+        name: currentUser,
+        available: true
+      });
+    } else {
+      // Toggle between available and unavailable only
+      participant.available = !participant.available;
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    
+    updatePoll(updatedPoll);
+  };
 
-  if (isLoading) {
-    return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
-  }
+  const handleAddComment = useCallback((dateIndex, text) => {
+    const updatedPoll = {...localPoll};
+    const dateEntry = updatedPoll.dates[dateIndex];
+    
+    if (!dateEntry.comments) {
+      dateEntry.comments = [];
+    }
+    
+    dateEntry.comments.push({
+      author: currentUser,
+      text: text
+    });
+    
+    updatePoll(updatedPoll);
+  }, [localPoll, currentUser, updatePoll]);
 
-  if (error) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="bg-red-50 text-red-700 p-6 rounded-lg shadow max-w-lg">
-          <h2 className="text-xl font-bold mb-4">Error</h2>
-          <p className="whitespace-pre-line mb-4">{error}</p>
-          
-          {error.includes('tables are not set up') && (
-            <div className="bg-yellow-50 border border-yellow-200 p-4 rounded mb-4">
-              <p className="text-sm font-medium mb-2">Solution:</p>
-              <ol className="list-decimal list-inside text-sm">
-                <li className="mb-2">Go to your <a href="https://app.supabase.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Supabase dashboard</a></li>
-                <li className="mb-2">Navigate to the SQL Editor</li>
-                <li className="mb-2">Run the SQL migrations from the <code className="bg-gray-100 px-1 py-0.5 rounded">supabase/migrations</code> folder</li>
-              </ol>
-            </div>
-          )}
-          
-          <button 
-            onClick={() => navigate('/')}
-            className="mt-2 bg-blue-500 text-white px-4 py-2 rounded"
-          >
-            Return to Home
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Update getParticipantStatus to include more information
+  const getParticipantStatus = (dateEntry) => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) {
+      const hasAnyParticipants = dateEntry.participants.some(p => p.name === currentUser);
+      return { exists: false, available: hasAnyParticipants ? false : null }; // null means no response yet
+    }
+    return { exists: true, available: participant.available };
+  };
+
+  // Add the same helper functions
+  const isDateInDifferentMonth = (date) => {
+    const currentMonthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const currentMonthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    return date < currentMonthStart || date > currentMonthEnd;
+  };
+
+  const showPopupForDate = (date, event, isExistingDate) => {
+    const rect = event.target.getBoundingClientRect();
+    const formattedDate = formatDateString(date);
+    
+    if (isExistingDate) {
+      const dateEntry = localPoll.dates.find(d => d.date === formattedDate);
+      setSelectedDate(dateEntry);
+      setSelectedDatePopup({
+        visible: true,
+        position: {
+          x: rect.right + 10,
+          y: rect.top
+        }
+      });
+    } else {
+      setPopupPosition({
+        x: rect.right + 10,
+        y: rect.top
+      });
+      setPotentialDate({
+        date: formattedDate,
+        originalDate: date
+      });
+    }
+  };
+
+  // Add this helper function for consistent date formatting
+  const formatAdjustedDate = (date) => {
+    const d = new Date(date);
+    // Don't adjust the date, just format it directly
+    return d.toLocaleDateString();
+  };
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
@@ -336,14 +251,16 @@ function SamplePoll() {
           <CalendarIcon className="mr-2" />
           <h1 className="text-2xl font-bold">{localPoll.title}</h1>
         </div>
-        <div className="text-gray-600">
-          Logged in as: {username}
-        </div>
+        {currentUser && (
+          <div className="text-gray-600">
+            Logged in as: {currentUser}
+          </div>
+        )}
       </div>
       
       <div className="flex gap-6">
         {/* Calendar section */}
-        <div className="w-[700px] h-[700px] shadow-lg bg-white rounded-lg overflow-hidden">
+        <div className="w-[700px] h-[650px] shadow-lg bg-white rounded-lg overflow-hidden">
           <Calendar
             className="w-full h-full"
             tileContent={tileContent}
@@ -398,8 +315,24 @@ function SamplePoll() {
               </div>
               <button
                 onClick={() => {
-                  handleToggleAvailability(selectedDate.date);
-                  setSelectedDatePopup(prev => ({ ...prev, visible: false }));
+                  const dateIndex = localPoll.dates.findIndex(d => d.date === selectedDate.date);
+                  if (dateIndex !== -1) {
+                    const status = getParticipantStatus(selectedDate);
+                    const newAvailability = status.available === null ? true : !status.available;
+                    
+                    handleToggleAvailability(dateIndex);
+                    // Update the selected date's participant status immediately
+                    setSelectedDate({
+                      ...selectedDate,
+                      participants: status.exists
+                        ? selectedDate.participants.map(p => 
+                            p.name === currentUser 
+                              ? { ...p, available: newAvailability }
+                              : p
+                          )
+                        : [...selectedDate.participants, { name: currentUser, available: newAvailability }]
+                    });
+                  }
                 }}
                 className={`w-full px-4 py-2 rounded text-white ${
                   getParticipantStatus(selectedDate).available === null
@@ -417,30 +350,27 @@ function SamplePoll() {
               </button>
             </div>
           )}
+
+          {/* ...existing potentialDate popup... */}
         </div>
 
         {/* Dates list with interactive features */}
         <div className="flex-1">
-          <div className="bg-white rounded-lg shadow-lg p-6 h-[700px] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg p-6">
             <h2 className="text-xl font-semibold mb-6">Proposed Dates</h2>
-            {localPoll.dates.length === 0 ? (
-              <div className="text-center p-4 bg-gray-50 rounded">
-                No dates have been proposed yet. Click on a date in the calendar to add it.
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {localPoll.dates.map((dateEntry) => (
-                  <DateEntry
-                    key={dateEntry.date}
-                    date={dateEntry}
-                    username={username}
-                    onDelete={() => handleDeleteDate(dateEntry.date)}
-                    onToggleAvailability={() => handleToggleAvailability(dateEntry.date)}
-                    onAddComment={(text) => handleAddComment(dateEntry.date, text)}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="space-y-6">
+              {localPoll.dates.map((dateEntry, index) => (
+                <DateEntry
+                  key={dateEntry.date}
+                  date={dateEntry}
+                  dateIndex={index}
+                  currentUser={currentUser}
+                  onDelete={handleDeleteDate}
+                  onToggleAvailability={handleToggleAvailability}
+                  onAddComment={handleAddComment}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -482,13 +412,13 @@ function SamplePoll() {
 }
 
 // DateEntry subcomponent
-const DateEntry = memo(({ date, username, onDelete, onToggleAvailability, onAddComment }) => {
+const DateEntry = memo(({ date, dateIndex, currentUser, onDelete, onToggleAvailability, onAddComment }) => {
   const [commentDraft, setCommentDraft] = useState('');
-  const participant = date.participants.find(p => p.name === username);
+  const participant = date.participants.find(p => p.name === currentUser);
 
   const handleCommentSubmit = () => {
     if (commentDraft.trim()) {
-      onAddComment(commentDraft);
+      onAddComment(dateIndex, commentDraft);
       setCommentDraft('');
     }
   };
@@ -497,7 +427,7 @@ const DateEntry = memo(({ date, username, onDelete, onToggleAvailability, onAddC
     if (!participant) {
       return (
         <button 
-          onClick={onToggleAvailability}
+          onClick={() => onToggleAvailability(dateIndex)}
           className="px-3 py-1 rounded text-sm bg-gray-500 text-white"
         >
           Not Answered
@@ -507,7 +437,7 @@ const DateEntry = memo(({ date, username, onDelete, onToggleAvailability, onAddC
 
     return (
       <button 
-        onClick={onToggleAvailability}
+        onClick={() => onToggleAvailability(dateIndex)}
         className={`px-3 py-1 rounded text-sm ${
           participant.available ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
         }`}
@@ -526,7 +456,7 @@ const DateEntry = memo(({ date, username, onDelete, onToggleAvailability, onAddC
         <div className="flex gap-2">
           {getAvailabilityButton()}
           <button
-            onClick={onDelete}
+            onClick={() => onDelete(dateIndex)}
             className="text-red-500 hover:text-red-700"
           >
             <Trash2 size={16} />

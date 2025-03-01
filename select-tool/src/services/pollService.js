@@ -10,33 +10,56 @@ export const generatePollCode = () => {
   return result;
 };
 
-// Create a new poll
-export const createPoll = async ({ title, adminName }) => {
+// Create a new poll - Enhanced to include optional recovery email
+export const createPoll = async ({ title, adminName, recoveryEmail }) => {
   const pollCode = generatePollCode();
   const adminToken = crypto.randomUUID(); // Generate a secure token for admin access
   
-  const { data, error } = await supabase
-    .from('polls')
-    .insert([
-      { 
-        code: pollCode,
-        title: title,
-        admin_name: adminName,
-        admin_token: adminToken
-      }
-    ])
-    .select();
-  
-  if (error) {
-    throw new Error(`Failed to create poll: ${error.message}`);
+  try {
+    // Step 1: Create the poll in the polls table with optional recovery email
+    const { error: pollError } = await supabase
+      .from('polls')
+      .insert([
+        { 
+          code: pollCode,
+          title: title,
+          admin_name: adminName,
+          admin_token: adminToken,
+          recovery_email: recoveryEmail || null // Store recovery email if provided
+        }
+      ]);
+    
+    if (pollError) {
+      throw new Error(`Failed to create poll: ${pollError.message}`);
+    }
+    
+    // Step 2: Add the admin as the first user
+    const { error: userError } = await supabase
+      .from('poll_users')
+      .insert([
+        {
+          poll_code: pollCode,
+          username: adminName,
+          created_at: new Date().toISOString()
+        }
+      ]);
+    
+    if (userError) {
+      throw new Error(`Failed to add admin user: ${userError.message}`);
+    }
+    
+    // Return the new poll data with admin details
+    return {
+      code: pollCode,
+      title,
+      adminName,
+      adminToken,
+      recoveryEmail: recoveryEmail || null
+    };
+  } catch (error) {
+    console.error('Error in createPoll:', error);
+    throw error;
   }
-  
-  return {
-    code: pollCode,
-    title,
-    adminName,
-    adminToken
-  };
 };
 
 // Get poll by code
@@ -121,38 +144,82 @@ export const getPoll = async (pollCode) => {
   };
 };
 
-// Add a date to a poll
-export const addDateToPoll = async (pollCode, date, username) => {
-  // First ensure the date exists in poll_dates
-  const { error: dateError } = await supabase
-    .from('poll_dates')
-    .insert([
-      { poll_code: pollCode, date }
-    ]);
-  
-  if (dateError && !dateError.message.includes('duplicate key')) {
-    throw new Error(`Failed to add date: ${dateError.message}`);
-  }
-  
-  // If the user proposed the date, mark them as available
-  if (username) {
-    const { error: responseError } = await supabase
-      .from('poll_responses')
-      .insert([
-        {
-          poll_code: pollCode,
-          date,
+// Ensure user exists in poll_users table
+export const ensureUserExists = async (pollCode, username) => {
+  try {
+    // Check if user already exists in the poll
+    const { data, error: queryError } = await supabase
+      .from('poll_users')
+      .select('*')
+      .eq('poll_code', pollCode)
+      .eq('username', username);
+    
+    if (queryError) {
+      throw new Error(`Error checking user: ${queryError.message}`);
+    }
+    
+    // If user doesn't exist, create them
+    if (!data || data.length === 0) {
+      const { error: createError } = await supabase
+        .from('poll_users')
+        .insert([{ 
+          poll_code: pollCode, 
           username,
-          available: true
-        }
+          created_at: new Date().toISOString()
+        }]);
+        
+      if (createError) {
+        throw new Error(`Error creating user: ${createError.message}`);
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error ensuring user exists:', error);
+    throw error;
+  }
+};
+
+// Add a date to a poll (updated to ensure user exists first)
+export const addDateToPoll = async (pollCode, date, username) => {
+  try {
+    // First ensure the user exists in poll_users
+    await ensureUserExists(pollCode, username);
+    
+    // Then add the date
+    const { error: dateError } = await supabase
+      .from('poll_dates')
+      .insert([
+        { poll_code: pollCode, date }
       ]);
     
-    if (responseError && !responseError.message.includes('duplicate key')) {
-      throw new Error(`Failed to set availability: ${responseError.message}`);
+    if (dateError && !dateError.message.includes('duplicate key')) {
+      throw new Error(`Failed to add date: ${dateError.message}`);
     }
+    
+    // If the user proposed the date, mark them as available
+    if (username) {
+      const { error: responseError } = await supabase
+        .from('poll_responses')
+        .insert([
+          {
+            poll_code: pollCode,
+            date,
+            username,
+            available: true
+          }
+        ]);
+      
+      if (responseError && !responseError.message.includes('duplicate key')) {
+        throw new Error(`Failed to set availability: ${responseError.message}`);
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in addDateToPoll:', error);
+    throw error;
   }
-  
-  return { success: true };
 };
 
 // Remove a date from a poll
@@ -170,51 +237,96 @@ export const removeDateFromPoll = async (pollCode, date) => {
   return { success: true };
 };
 
-// Set user availability for a date
+// Set user availability for a date (updated to ensure user exists first)
 export const setAvailability = async (pollCode, date, username, isAvailable) => {
-  // Upsert approach - insert if not exists, update if exists
-  const { error } = await supabase
-    .from('poll_responses')
-    .upsert([
-      {
-        poll_code: pollCode,
-        date,
-        username,
-        available: isAvailable,
-        updated_at: new Date().toISOString()
-      }
-    ]);
-  
-  if (error) {
-    throw new Error(`Failed to set availability: ${error.message}`);
+  try {
+    // First ensure the user exists in poll_users
+    await ensureUserExists(pollCode, username);
+    
+    // Check if a response already exists for this user and date
+    const { data: existingResponses, error: checkError } = await supabase
+      .from('poll_responses')
+      .select('*')
+      .eq('poll_code', pollCode)
+      .eq('date', date)
+      .eq('username', username);
+    
+    if (checkError) {
+      throw new Error(`Error checking existing response: ${checkError.message}`);
+    }
+
+    // If response exists, update it; otherwise insert a new one
+    let error;
+    
+    if (existingResponses && existingResponses.length > 0) {
+      // Update existing response - use the ID for the first match
+      const { error: updateError } = await supabase
+        .from('poll_responses')
+        .update({ 
+          available: isAvailable,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingResponses[0].id);
+      
+      error = updateError;
+    } else {
+      // Insert new response
+      const { error: insertError } = await supabase
+        .from('poll_responses')
+        .insert([{
+          poll_code: pollCode,
+          date,
+          username,
+          available: isAvailable,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }]);
+      
+      error = insertError;
+    }
+    
+    if (error) {
+      throw new Error(`Failed to set availability: ${error.message}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in setAvailability:', error);
+    throw error;
   }
-  
-  return { success: true };
 };
 
-// Add a comment to a date
+// Add a comment to a date (updated to ensure user exists first)
 export const addComment = async (pollCode, date, username, comment) => {
-  const { error } = await supabase
-    .from('poll_comments')
-    .insert([
-      {
-        poll_code: pollCode,
-        date,
-        username,
-        comment
-      }
-    ]);
-  
-  if (error) {
-    throw new Error(`Failed to add comment: ${error.message}`);
+  try {
+    // First ensure the user exists in poll_users
+    await ensureUserExists(pollCode, username);
+    
+    const { error } = await supabase
+      .from('poll_comments')
+      .insert([
+        {
+          poll_code: pollCode,
+          date,
+          username,
+          comment
+        }
+      ]);
+    
+    if (error) {
+      throw new Error(`Failed to add comment: ${error.message}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in addComment:', error);
+    throw error;
   }
-  
-  return { success: true };
 };
 
-// Create the test poll if it doesn't exist
+// Updated function to use the database test poll instead of the localStorage one
 export const initializeTestPoll = async () => {
-  // Check if test poll exists
+  // Check if test poll exists in database
   const { data, error } = await supabase
     .from('polls')
     .select('*')
@@ -225,40 +337,13 @@ export const initializeTestPoll = async () => {
     throw new Error(`Error checking for test poll: ${error.message}`);
   }
   
-  // If test poll doesn't exist, create it
+  // If test poll doesn't exist in database but we need to create it,
+  // redirect the user to run the initialize_test_poll.sql script
   if (!data) {
-    const { error: createError } = await supabase
-      .from('polls')
-      .insert([
-        {
-          code: 'test',
-          title: 'Test Poll',
-          admin_name: 'Admin',
-          admin_token: 'test-admin-token'
-        }
-      ]);
-    
-    if (createError) {
-      throw new Error(`Failed to create test poll: ${createError.message}`);
-    }
-    
-    // Add default users
-    const defaultUsers = ['Alice', 'Bob', 'Charlie', 'David'];
-    for (const username of defaultUsers) {
-      const { error: userError } = await supabase
-        .from('poll_users')
-        .insert([
-          {
-            poll_code: 'test',
-            username
-          }
-        ]);
-      
-      if (userError && !userError.message.includes('duplicate key')) {
-        throw new Error(`Failed to add user ${username}: ${userError.message}`);
-      }
-    }
+    throw new Error(
+      'Test poll not found in database. Please run the initialize_test_poll.sql script in the Supabase SQL Editor.'
+    );
   }
   
-  return { success: true };
+  return { success: true, poll: data };
 };

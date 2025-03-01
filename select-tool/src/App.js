@@ -8,6 +8,7 @@ import { PollProvider } from './contexts/PollContext';
 import LandingPage from './components/LandingPage';
 import PollCreate from './components/PollCreate';
 import PollJoin from './components/PollJoin';
+import PollLogin from './components/PollLogin';
 import PollRecover from './components/PollRecover';
 import AdminPanel from './components/AdminPanel';
 import NotFound from './components/NotFound';
@@ -155,7 +156,7 @@ function App() {
       border: transparent;
       font-family: inherit;
       line-height: 1.125em;
-      height: 700px; /* Increased from 650px to 700px for more space */
+      height: 650px;
       display: flex;
       flex-direction: column;
       padding: 1em;
@@ -171,6 +172,13 @@ function App() {
       position: relative;
     }
     
+    .react-calendar__navigation button {
+      min-width: 44px;
+      background: none;
+      font-size: 1em;
+      padding: 0;
+    }
+
     /* Hide year navigation buttons */
     .react-calendar__navigation__prev2-button,
     .react-calendar__navigation__next2-button {
@@ -205,7 +213,7 @@ function App() {
     /* Ensure view container takes remaining space */
     .react-calendar__viewContainer {
       flex: 1;
-      min-height: 570px; /* Increased from 520px to 570px */
+      min-height: 520px;
       width: 100%;
       border: 1px solid #ddd;
     }
@@ -219,7 +227,7 @@ function App() {
     .react-calendar__month-view__days {
       display: grid !important;
       grid-template-columns: repeat(7, 1fr);
-      grid-template-rows: repeat(6, minmax(85px, 1fr)); /* Increased row height from 80px to 85px */
+      grid-template-rows: repeat(6, minmax(80px, 1fr));
       width: 100%;
       aspect-ratio: 7/6;
       overflow: hidden; /* Add this */
@@ -248,7 +256,7 @@ function App() {
       border-right: 1px solid #ddd;
       border-bottom: 1px solid #ddd;
       transition: background-color 0.2s;
-      min-height: 85px; /* Increased from 80px to 85px */
+      min-height: 80px;  /* Added to ensure consistent height */
       overflow: visible; /* Add this */
       z-index: 1; /* Add this */
     }
@@ -620,7 +628,7 @@ function App() {
   const renderDateSelector = () => (
     <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
       {/* Calendar section */}
-      <div className="w-[700px] h-[700px] flex-shrink-0 overflow-hidden">  {/* Increased from 650px to 700px */}
+      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
         <Calendar
           className="w-full h-full shadow-lg bg-white"
           defaultValue={defaultCalendarDate}
@@ -788,19 +796,17 @@ function App() {
     <PollProvider>
       <BrowserRouter>
         <Routes>
-          {/* Main routes - keep LandingPage at the root */}
+          {/* Main routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/poll/create" element={<PollCreate />} />
-          {/* Remove the general join route */}
-          {/* <Route path="/poll/join" element={<PollJoin />} /> */}
-          <Route path="/poll/:id/join" element={<PollJoin />} /> {/* Keep specific poll join route */}
+          <Route path="/poll/join" element={<PollJoin />} />
           <Route path="/poll/recover" element={<PollRecover />} />
           
-          {/* Poll routes - SamplePoll will now check for username */}
-          <Route path="/poll/:id" element={<SamplePoll />} />
-          <Route path="/samplepoll" element={<SamplePoll />} />
+          {/* Sample poll route */}
+          <Route path="/poll/test/entry" element={<SamplePoll />} />
           
           {/* Poll interaction routes */}
+          <Route path="/poll/:id" element={<PollLogin />} />
           <Route path="/poll/:id/entry" element={<PollView />} />
           <Route path="/poll/:id/admin" element={<AdminPanel />} />
           <Route path="/poll/:id/view" element={<SamplePoll />} />

@@ -1,330 +1,266 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { usePoll } from '../contexts/PollContext';
+import { useParams, useNavigate } from 'react-router-dom';
+import { CalendarIcon, ClipboardCopy, Users, Share2 } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
 function AdminPanel() {
-  const { id: pollId } = useParams();
-  const location = useLocation();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const { currentPoll, checkAdminToken } = usePoll();
-  const [adminToken, setAdminToken] = useState(location.state?.adminToken || '');
-  const [isVerified, setIsVerified] = useState(!!location.state?.isVerified);
-  const [error, setError] = useState('');
-  const [pollTitle, setPollTitle] = useState(() => 
-    localStorage.getItem(`pollTitle_${pollId}`) || ''
-  );
-  const [titleError, setTitleError] = useState('');  // Add this line
-  const [presetNames, setPresetNames] = useState(() => 
-    JSON.parse(localStorage.getItem(`presetNames_${pollId}`)) || ['John', 'Alice', 'Bob']
-  );
-  const [blockedDates, setBlockedDates] = useState(() =>
-    JSON.parse(localStorage.getItem(`blockedDates_${pollId}`)) || []
-  );
-  const [pollOpen, setPollOpen] = useState(() =>
-    JSON.parse(localStorage.getItem(`pollOpen_${pollId}`)) ?? true
-  );
-  const [usageLimit, setUsageLimit] = useState(() =>
-    parseInt(localStorage.getItem(`usageLimit_${pollId}`)) || 1
-  );
-  const [adminName] = useState(localStorage.getItem('adminName') || 'Anonymous');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [pollDetails, setPollDetails] = useState(null);
+  const [userCount, setUserCount] = useState(0);
+  const [dateCount, setDateCount] = useState(0);
 
-  // Add useEffect to auto-verify if admin token is in localStorage
   useEffect(() => {
-    const storedToken = localStorage.getItem('adminToken');
-    if (storedToken && checkAdminToken(pollId, storedToken)) {
-      setAdminToken(storedToken);
-      setIsVerified(true);
-    }
-  }, [pollId, checkAdminToken]);
+    const fetchPollDetails = async () => {
+      setIsLoading(true);
+      
+      try {
+        // Check if admin token exists for this poll
+        const adminToken = localStorage.getItem(`poll_${id}_admin_token`);
+        
+        if (!adminToken) {
+          setError("You don't have admin access to this poll");
+          setIsLoading(false);
+          return;
+        }
 
-  // Skip verification if we came directly from poll creation
-  useEffect(() => {
-    if (location.state?.isVerified) {
-      setIsVerified(true);
-    }
-  }, [location.state]);
+        // Fetch poll data from Supabase
+        const { data: pollData, error: pollError } = await supabase
+          .from('polls')
+          .select('*')
+          .eq('code', id)
+          .eq('admin_token', adminToken)
+          .single();
+        
+        if (pollError) {
+          throw new Error(`Failed to verify admin access: ${pollError.message}`);
+        }
 
-  const verifyToken = () => {
-    if (checkAdminToken(pollId, adminToken)) {
-      setIsVerified(true);
-      setError('');
-      localStorage.setItem('adminToken', adminToken);
+        if (!pollData) {
+          throw new Error("Admin token doesn't match this poll");
+        }
+
+        // Count users in this poll
+        const { count: usersCount, error: usersError } = await supabase
+          .from('poll_users')
+          .select('*', { count: 'exact' })
+          .eq('poll_code', id);
+
+        if (usersError) {
+          console.error("Error counting users:", usersError);
+        }
+        
+        // Count dates in this poll
+        const { count: datesCount, error: datesError } = await supabase
+          .from('poll_dates')
+          .select('*', { count: 'exact' })
+          .eq('poll_code', id);
+
+        if (datesError) {
+          console.error("Error counting dates:", datesError);
+        }
+
+        // Set poll details and stats
+        setPollDetails({
+          id: pollData.id,
+          code: pollData.code,
+          title: pollData.title,
+          adminName: pollData.admin_name,
+          adminToken: adminToken,
+          recoveryEmail: pollData.recovery_email,
+          createdAt: new Date(pollData.created_at).toLocaleDateString()
+        });
+        
+        setUserCount(usersCount || 0);
+        setDateCount(datesCount || 0);
+        
+        setIsLoading(false);
+      } catch (err) {
+        console.error('Error fetching poll details:', err);
+        setError(`Error: ${err.message}`);
+        setIsLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchPollDetails();
     } else {
-      setError('Invalid admin token');
+      setError("No poll ID provided");
+      setIsLoading(false);
+    }
+  }, [id]);
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Copied to clipboard!');
+    });
+  };
+
+  const handleViewPoll = () => {
+    if (pollDetails) {
+      navigate(`/poll/${id}`, { 
+        state: { username: pollDetails.adminName } 
+      });
     }
   };
 
-  // NEW: Admin Enhancements State
-  const [newPreset, setNewPreset] = useState('');
-  const [selectedBlockDate, setSelectedBlockDate] = useState(null);
-
-  // Update formatDateString to handle dates consistently
-  function formatDateString(date) {
-    return date.toISOString().split('T')[0];
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  // NEW: Preset Names Management Handlers
-  const handleAddPreset = () => {
-    const trimmed = newPreset.trim();
-    if (trimmed && !presetNames.includes(trimmed)) {
-      setPresetNames([...presetNames, trimmed]);
-      setNewPreset('');
-    }
-  };
-
-  const handleRemovePreset = (name) => {
-    if(window.confirm(`Remove preset name "${name}"?`)) {
-      setPresetNames(presetNames.filter(n => n !== name));
-    }
-  };
-
-  const handleEditPreset = (oldName, newName) => {
-    const trimmed = newName.trim();
-    if (trimmed && !presetNames.includes(trimmed)) {
-      setPresetNames(presetNames.map(n => (n === oldName ? trimmed : n)));
-    }
-  };
-
-  // NEW: Date Blocking Controls Handlers
-  const handleBlockDate = (date) => {
-    const formatted = formatDateString(date);
-    if(window.confirm(`Block date ${new Date(formatted + 'T00:00:00').toLocaleDateString()}?`)) {
-      setBlockedDates([...blockedDates, formatted]);
-    }
-  };
-
-  const handleUnblockDate = (date) => {
-    if(window.confirm(`Unblock date ${date}?`)) {
-      setBlockedDates(blockedDates.filter(d => d !== date));
-    }
-  };
-
-  // Update useEffect to save title when it changes
-  useEffect(() => {
-    localStorage.setItem(`pollTitle_${pollId}`, pollTitle);
-  }, [pollId, pollTitle]);
-
-  // Add effect to save settings whenever they change
-  useEffect(() => {
-    localStorage.setItem(`presetNames_${pollId}`, JSON.stringify(presetNames));
-    localStorage.setItem(`blockedDates_${pollId}`, JSON.stringify(blockedDates));
-    localStorage.setItem(`pollOpen_${pollId}`, JSON.stringify(pollOpen));
-    localStorage.setItem(`usageLimit_${pollId}`, usageLimit.toString());
-  }, [pollId, presetNames, blockedDates, pollOpen, usageLimit]);
-
-  if (!isVerified) {
+  if (error) {
     return (
-      <div className="max-w-md mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-6">Admin Access</h1>
-        {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
-            {error}
-          </div>
-        )}
-        <div className="space-y-4">
-          <input
-            type="text"
-            value={adminToken}
-            onChange={(e) => setAdminToken(e.target.value)}
-            placeholder="Enter admin token"
-            className="w-full border rounded p-3"
-          />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-red-50 text-red-700 p-6 rounded-lg shadow-md max-w-md">
+          <h2 className="text-xl font-bold mb-4">Access Error</h2>
+          <p className="mb-4">{error}</p>
           <button
-            onClick={verifyToken}
-            className="w-full bg-blue-500 text-white px-4 py-3 rounded hover:bg-blue-600"
+            onClick={() => navigate('/')}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
           >
-            Verify Token
+            Return to Home
           </button>
         </div>
       </div>
     );
   }
 
-  const handleGoToPoll = () => {
-    if (!pollTitle.trim()) {
-      setTitleError('Please enter a poll title before proceeding');
-      return;
-    }
-
-    const adminName = localStorage.getItem('adminName');
-    if (!adminName) {
-      navigate('/poll/create');
-      return;
-    }
-
-    navigate(`/poll/${pollId}/blank`, { 
-      state: { 
-        adminName: adminName,
-        isAdmin: true,
-        freshPoll: true,
-        pollTitle: pollTitle,
-        pollSettings: {
-          presetNames,
-          blockedDates,
-          pollOpen,
-          usageLimit
-        }
-      },
-      replace: true 
-    });
-  };
-
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex justify-between items-start mb-8">
-        <h1 className="text-2xl font-bold">Admin Controls</h1>
-        <div className="text-right">
-          <div className="text-sm text-gray-500 mb-1">
-            Admin Token: {adminToken}
-          </div>
-          <div className="text-sm text-gray-500">
-            Admin: {adminName}
-          </div>
+    <div className="min-h-screen p-6 bg-gray-50">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center mb-6">
+          <CalendarIcon className="mr-2" />
+          <h1 className="text-2xl font-bold">Admin Panel</h1>
         </div>
-      </div>
 
-      {/* Poll Title Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Poll Title</h2>
-        <div className="space-y-2">
-          <input
-            type="text"
-            value={pollTitle}
-            onChange={(e) => {
-              setPollTitle(e.target.value);
-              setTitleError('');  // Clear error when typing
-            }}
-            placeholder="Enter poll title"
-            className={`w-full border rounded p-2 ${titleError ? 'border-red-500' : ''}`}
-          />
-          {titleError && (
-            <p className="text-red-500 text-sm">{titleError}</p>
-          )}
-        </div>
-      </section>
-
-      {/* Remove Manage Users and Manage Dates sections */}
-
-      {/* Preset Names Management Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">User Management</h2>
-        <div className="mb-4">
-          <input
-            type="text"
-            value={newPreset}
-            onChange={(e) => setNewPreset(e.target.value)}
-            placeholder="Add new preset name"
-            className="border p-2 rounded mr-2"
-          />
-          <button onClick={handleAddPreset} className="bg-blue-500 text-white px-4 py-2 rounded">
-            Add
-          </button>
-        </div>
-        <ul>
-          {presetNames.map(name => (
-            <li key={name} className="flex items-center justify-between border-b p-2">
-              <span>{name}</span>
+        {/* Poll Details Card */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">{pollDetails.title}</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-blue-50 p-4 rounded-lg flex items-center">
+              <Users className="text-blue-500 mr-3" />
               <div>
-                <button
-                  onClick={() => {
-                    const newName = window.prompt("Edit name:", name);
-                    if(newName) handleEditPreset(name, newName);
-                  }}
-                  className="text-yellow-500 mr-2"
+                <p className="text-sm text-blue-700">Participants</p>
+                <p className="text-2xl font-bold">{userCount}</p>
+              </div>
+            </div>
+            
+            <div className="bg-green-50 p-4 rounded-lg flex items-center">
+              <CalendarIcon className="text-green-500 mr-3" />
+              <div>
+                <p className="text-sm text-green-700">Proposed Dates</p>
+                <p className="text-2xl font-bold">{dateCount}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-500">Admin:</span>
+              <span className="font-medium">{pollDetails.adminName}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-500">Created:</span>
+              <span>{pollDetails.createdAt}</span>
+            </div>
+            
+            {pollDetails.recoveryEmail && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-500">Recovery Email:</span>
+                <span>{pollDetails.recoveryEmail}</span>
+              </div>
+            )}
+            
+            <div className="border-t my-4"></div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Poll Code
+              </label>
+              <div className="flex">
+                <div className="py-2 px-3 bg-gray-50 rounded-l border-y border-l flex-grow">
+                  {pollDetails.code}
+                </div>
+                <button 
+                  onClick={() => copyToClipboard(pollDetails.code)}
+                  className="bg-blue-500 text-white px-3 rounded-r hover:bg-blue-600"
+                  title="Copy poll code to clipboard"
                 >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleRemovePreset(name)}
-                  className="text-red-500"
-                >
-                  Remove
+                  <ClipboardCopy size={16} />
                 </button>
               </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Date Blocking Controls Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Date Blocking</h2>
-        <p className="mb-2">Select a date to block/unblock:</p>
-        <input
-          type="date"
-          onChange={(e) => {
-            // Use the formatAdjustedDate approach
-            const selectedDate = new Date(e.target.value + 'T00:00:00');
-            setSelectedBlockDate(selectedDate);
-          }}
-          className="border p-2 rounded"
-        />
-        <button
-          onClick={() => selectedBlockDate && handleBlockDate(selectedBlockDate)}
-          className="bg-orange-500 text-white px-4 py-2 rounded ml-2"
-        >
-          Block Date
-        </button>
-        <ul className="mt-4">
-          {blockedDates.map(date => (
-            <li key={date} className="flex items-center justify-between p-2 border-b">
-              <span>{new Date(date + 'T00:00:00').toLocaleDateString()}</span>
-              <button onClick={() => handleUnblockDate(date)} className="text-green-500">
-                Unblock
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Results Preview Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Poll Results Preview</h2>
-        <div className="p-4 border rounded">
-          <p>Total Participants: {currentPoll?.participants?.length || 0}</p>
-          <p>Total Dates: {currentPoll?.dates?.length || 0}</p>
-          {/* Replace with dynamic chart components if desired */}
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Share Link
+              </label>
+              <div className="flex">
+                <div className="py-2 px-3 bg-gray-50 rounded-l border-y border-l flex-grow overflow-auto text-sm">
+                  {`${window.location.origin}/poll/${pollDetails.code}/join`}
+                </div>
+                <button 
+                  onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+                  className="bg-blue-500 text-white px-3 rounded-r hover:bg-blue-600"
+                  title="Copy share link to clipboard"
+                >
+                  <ClipboardCopy size={16} />
+                </button>
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Admin Token <span className="text-red-500">(Keep this secure)</span>
+              </label>
+              <div className="flex">
+                <div className="py-2 px-3 bg-gray-50 rounded-l border-y border-l flex-grow overflow-auto text-sm">
+                  {pollDetails.adminToken}
+                </div>
+                <button 
+                  onClick={() => copyToClipboard(pollDetails.adminToken)}
+                  className="bg-blue-500 text-white px-3 rounded-r hover:bg-blue-600"
+                  title="Copy admin token to clipboard"
+                >
+                  <ClipboardCopy size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
 
-      {/* Poll Settings Toggles Section */}
-      <section className="bg-white p-6 rounded-lg shadow mb-6">
-        <h2 className="text-xl font-semibold mb-4">Poll Settings</h2>
-        <div className="flex items-center mb-4">
-          <label className="mr-4">Poll Status:</label>
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
-            onClick={() => setPollOpen(!pollOpen)}
-            className={`px-4 py-2 rounded ${pollOpen ? 'bg-green-500' : 'bg-red-500'} text-white`}
+            onClick={handleViewPoll}
+            className="flex items-center justify-center bg-blue-500 text-white px-4 py-3 rounded hover:bg-blue-600"
           >
-            {pollOpen ? 'Open' : 'Closed'}
+            <CalendarIcon className="mr-2" size={20} />
+            View Poll
+          </button>
+          
+          <button
+            onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+            className="flex items-center justify-center bg-green-500 text-white px-4 py-3 rounded hover:bg-green-600"
+          >
+            <Share2 className="mr-2" size={20} />
+            Share Poll
           </button>
         </div>
-        <div className="flex items-center">
-          <label className="mr-4">Preset Usage Limit:</label>
-          <input
-            type="number"
-            min="1"
-            value={usageLimit}
-            onChange={(e) => setUsageLimit(Number(e.target.value))}
-            className="border p-2 rounded w-20"
-          />
-        </div>
-      </section>
 
-      {/* Footer Actions */}
-      <div className="mt-6 flex justify-between items-center">
-        <button
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-        >
-          Close Poll
-        </button>
-        
-        <button
-          onClick={handleGoToPoll}
-          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
-        >
-          Go to Poll
-        </button>
+        {/* Future Features Section */}
+        <div className="mt-8 bg-gray-100 p-4 rounded-lg">
+          <h3 className="text-lg font-medium mb-2">Coming Soon</h3>
+          <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
+            <li>Poll closing and results</li>
+            <li>Email notifications</li>
+            <li>Custom poll settings</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

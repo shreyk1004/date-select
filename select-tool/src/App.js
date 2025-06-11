@@ -7,7 +7,7 @@ import { PollProvider } from './contexts/PollContext';
 // Import all components
 import LandingPage from './components/LandingPage';
 import PollCreate from './components/PollCreate';
-import PollJoin from './components/PollJoin';
+
 import PollLogin from './components/PollLogin';
 import PollRecover from './components/PollRecover';
 import AdminPanel from './components/AdminPanel';
@@ -799,7 +799,7 @@ function App() {
           {/* Main routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/poll/create" element={<PollCreate />} />
-          <Route path="/poll/join" element={<PollJoin />} />
+
           <Route path="/poll/recover" element={<PollRecover />} />
           
           {/* Sample poll route */}

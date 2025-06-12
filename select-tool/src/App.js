@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
 import { Calendar as CalendarIcon, Trash2 } from 'lucide-react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import Calendar from 'react-calendar';
 import { PollProvider } from './contexts/PollContext';
+import { getCompletePollData, addDateToPoll, removeDateFromPoll, setUserAvailability, addCommentToDate } from './services/pollService';
 
 // Import all components
 import LandingPage from './components/LandingPage';
@@ -13,7 +14,6 @@ import PollRecover from './components/PollRecover';
 import AdminPanel from './components/AdminPanel';
 import NotFound from './components/NotFound';
 import SamplePoll from './components/SamplePoll';
-import BlankPoll from './components/BlankPoll';
 
 import './index.css'; 
 import './output.css';
@@ -145,10 +145,406 @@ const DateEntry = memo(({
   );
 });
 
-function App() {
+// Move PollView component outside of App to avoid closure issues
+const PollView = () => {
+  const location = useLocation();
+  const { id: pollId } = useParams();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [currentUser] = useState(location.state?.username || 'Anonymous');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const popupRef = useRef(null);
+  const [potentialDate, setPotentialDate] = useState(null);
+  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+  
+  // Poll state managed within PollView
+  const [poll, setPoll] = useState({
+    id: pollId,
+    title: 'Loading...',
+    creator: '',
+    dates: []
+  });
+  
+  console.log('PollView location.state:', location.state);
+  console.log('PollView currentUser:', currentUser);
+  
+  // Load poll data from Supabase on mount
+  useEffect(() => {
+    const loadPollData = async () => {
+      try {
+        setLoading(true);
+        console.log('PollView loading poll data for:', pollId);
+        const pollData = await getCompletePollData(pollId);
+        console.log('PollView loaded poll data:', pollData);
+        
+        setPoll({
+          id: pollData.id,
+          title: pollData.title,
+          creator: pollData.creator,
+          dates: pollData.dates
+        });
+        setError(null);
+      } catch (err) {
+        console.error('Error loading poll data:', err);
+        setError('Failed to load poll data');
+        // Set fallback data
+        setPoll({
+          id: pollId,
+          title: location.state?.pollData?.title || 'Poll',
+          creator: currentUser,
+          dates: []
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
 
+    loadPollData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollId]); // Only depend on pollId to avoid infinite loops
+
+  // CRUD functions for PollView
+  const toggleAvailability = async (dateIndex, participantName) => {
+    try {
+      const dateEntry = poll.dates[dateIndex];
+      const participant = dateEntry.participants.find(p => p.name === participantName);
+      const newAvailable = participant ? !participant.available : true;
+      
+      console.log('PollView toggleAvailability:', { pollId: poll.id, date: dateEntry.date, participantName, newAvailable });
+      
+      // Save to Supabase first
+      await setUserAvailability(poll.id, dateEntry.date, participantName, newAvailable);
+      
+      // Then update local state
+      setPoll(prevPoll => {
+        const updatedDates = [...prevPoll.dates];
+        const dateToUpdate = {...updatedDates[dateIndex]};
+        
+        if (!dateToUpdate.participants) {
+          dateToUpdate.participants = [];
+        }
+
+        const participantIndex = dateToUpdate.participants.findIndex(p => p.name === participantName);
+        
+        if (participantIndex >= 0) {
+          // Toggle existing participant
+          dateToUpdate.participants = [...dateToUpdate.participants];
+          dateToUpdate.participants[participantIndex] = {
+            ...dateToUpdate.participants[participantIndex],
+            available: newAvailable
+          };
+        } else {
+          // Add new participant
+          dateToUpdate.participants = [
+            ...dateToUpdate.participants,
+            { name: participantName, available: newAvailable }
+          ];
+        }
+
+        updatedDates[dateIndex] = dateToUpdate;
+        
+        return {
+          ...prevPoll,
+          dates: updatedDates
+        };
+      });
+    } catch (error) {
+      console.error('Error toggling availability:', error);
+      setError('Failed to update availability');
+    }
+  };
+
+  const deleteDate = async (dateIndex) => {
+    try {
+      const dateEntry = poll.dates[dateIndex];
+      console.log('PollView deleting date:', { pollId: poll.id, date: dateEntry.date });
+      
+      // Save to Supabase first
+      await removeDateFromPoll(poll.id, dateEntry.date);
+      
+      // Then update local state
+      setPoll(prevPoll => ({
+        ...prevPoll,
+        dates: prevPoll.dates.filter((_, index) => index !== dateIndex)
+      }));
+    } catch (error) {
+      console.error('Error deleting date:', error);
+      setError('Failed to delete date');
+    }
+  };
+
+  const handleAddComment = useCallback(async (dateString, text) => {
+    try {
+      console.log('PollView adding comment:', { pollId: poll.id, date: dateString, user: currentUser, text });
+      
+      // Save to Supabase first
+      await addCommentToDate(poll.id, dateString.split('T')[0], currentUser, text);
+      
+      // Then update local state
+      setPoll(prevPoll => ({
+        ...prevPoll,
+        dates: prevPoll.dates.map(date => 
+          date.date === dateString.split('T')[0]
+            ? {
+                ...date,
+                comments: [
+                  ...(date.comments || []),
+                  { author: currentUser, text }
+                ]
+              }
+            : date
+        )
+      }));
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      setError('Failed to add comment');
+    }
+  }, [poll.id, currentUser]);
+
+  // Helper functions
+  const formatDateString = (date) => {
+    const d = new Date(date);
+    const localDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return localDate.toISOString().split('T')[0];
+  };
+
+  const getDateEntry = (date) => {
+    const formattedDate = formatDateString(date);
+    return poll.dates.find(d => d.date === formattedDate);
+  };
+
+  const formatAdjustedDate = (date) => {
+    if (!(date instanceof Date)) {
+      date = new Date(date);
+    }
+    date.setDate(date.getDate() + 1);
+    return date.toLocaleDateString();
+  };
+
+  // Helper function to get participant status
+  const getParticipantStatus = (dateEntry) => {
+    const participant = dateEntry.participants.find(p => p.name === currentUser);
+    if (!participant) return { exists: false, available: false };
+    return { exists: true, available: participant.available };
+  };
+
+  // Calendar tile rendering
+  const renderCalendarTile = ({ date, view }) => {
+    if (view !== 'month') return null;
+    const dateEntry = getDateEntry(date);
+    if (!dateEntry) return null;
+
+    const availableCount = dateEntry.participants.filter(p => p.available).length;
+    const totalCount = dateEntry.participants.length;
+    const userStatus = getParticipantStatus(dateEntry);
+    
+    return (
+      <>
+        <div className="vote-counter">
+          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
+        </div>
+        <div 
+          className={`absolute top-1 right-1 w-3 h-3 rounded-full ${
+            userStatus.exists
+              ? userStatus.available
+                ? 'bg-green-500'
+                : 'bg-red-500'
+              : 'bg-gray-400'
+          }`}
+        />
+      </>
+    );
+  };
+
+  // Sort dates
+  const sortedDates = useMemo(() => {
+    return [...poll.dates].sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [poll.dates]);
+
+  // Click outside handler
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (potentialDate && popupRef.current && !popupRef.current.contains(event.target)) {
+        if (!event.target.closest('.react-calendar__tile')) {
+          setPotentialDate(null);
+        }
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [potentialDate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading poll...</div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <Navigate to={`/poll/${pollId}`} />;
+  }
+
+  return (
+    <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+          {error}
+          <button
+            onClick={() => setError(null)}
+            className="ml-2 text-red-500 hover:text-red-700"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <CalendarIcon className="mr-2" />
+          <h1 className="text-2xl font-bold">{poll.title}</h1>
+        </div>
+        <div className="text-gray-600">
+          Logged in as: {currentUser}
+        </div>
+      </div>
+
+      <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
+        {/* Calendar section */}
+        <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">
+          <Calendar
+            className="w-full h-full shadow-lg bg-white"
+            tileClassName={({ date }) => {
+              const dateEntry = getDateEntry(date);
+              if (!dateEntry) return null;
+              
+              const availableCount = dateEntry.participants.filter(p => p.available).length;
+              const totalCount = dateEntry.participants.length;
+              const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
+              
+              if (availabilityRatio > 0.6) return 'date-green';
+              if (availabilityRatio >= 0.4) return 'date-yellow';
+              return 'date-red';
+            }}
+            onClickDay={(date, event) => {
+              // Handle date selection consistently
+              const formattedDate = formatDateString(date);
+              const dateExists = poll.dates.some(d => d.date === formattedDate);
+              
+              if (!dateExists) {
+                // Calculate position relative to the clicked tile
+                const rect = event.target.getBoundingClientRect();
+                setPopupPosition({
+                  x: rect.right + 10, // 10px offset from the right edge of the tile
+                  y: rect.top
+                });
+                setPotentialDate({
+                  date: formattedDate,
+                  originalDate: date
+                });
+              }
+            }}
+            tileDisabled={({ date }) => {
+              const dateEntry = getDateEntry(date);
+              return !!dateEntry;
+            }}
+            allowPartialRange={true}
+            minDetail="year"
+            maxDetail="month"
+            defaultView="month"
+            activeStartDate={currentMonth}
+            onActiveStartDateChange={({ activeStartDate }) => setCurrentMonth(activeStartDate)}
+            value={null}
+            tileContent={renderCalendarTile}
+          />
+
+          {/* Add date popup */}
+          {potentialDate && (
+            <div 
+              ref={popupRef}
+              className="date-popup"
+              style={{
+                left: `${popupPosition.x}px`,
+                top: `${popupPosition.y}px`,
+                position: 'fixed'
+              }}
+            >
+              <div className="p-4">
+                <h3 className="text-lg font-semibold mb-4">
+                  Add {formatAdjustedDate(potentialDate.date)}?
+                </h3>
+                <div className="flex justify-end gap-4">
+                  <button
+                    onClick={() => setPotentialDate(null)}
+                    className="px-4 py-2 text-gray-600 hover:text-red-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        console.log('PollView adding date:', { pollId: poll.id, date: potentialDate.date, user: currentUser });
+                        
+                        // Save to Supabase first
+                        await addDateToPoll(poll.id, potentialDate.date, currentUser);
+                        
+                        // Then update local state
+                        setPoll(prevPoll => ({
+                          ...prevPoll,
+                          dates: [
+                            ...prevPoll.dates,
+                            {
+                              date: potentialDate.date,
+                              participants: [{ name: currentUser, available: true }],
+                              comments: []
+                            }
+                          ].sort((a, b) => new Date(a.date) - new Date(b.date))
+                        }));
+                        setPotentialDate(null);
+                      } catch (error) {
+                        console.error('Error adding date:', error);
+                        setError('Failed to add date');
+                      }
+                    }}
+                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                  >
+                    Add Date
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Dates list section */}
+        <div className="w-[500px] flex-grow">
+          <div className="shadow-lg bg-white p-6 h-full overflow-y-auto rounded-lg">
+            <h2 className="text-xl font-semibold mb-8 sticky top-0 bg-white">Proposed Dates</h2>
+            <div className="space-y-8">
+              {sortedDates.map((dateEntry) => {
+                const dateIndex = poll.dates.findIndex(d => d.date === dateEntry.date);
+                return (
+                  <DateEntry
+                    key={dateEntry.date}
+                    dateEntry={dateEntry}
+                    dateIndex={dateIndex}
+                    onDeleteDate={deleteDate}
+                    onToggleAvailability={toggleAvailability}
+                    onAddComment={handleAddComment}
+                    currentUser={currentUser}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function App() {
   const calendarStyles = `
     .react-calendar {
       width: 700px !important; /* Force fixed width */
@@ -230,8 +626,8 @@ function App() {
       grid-template-rows: repeat(6, minmax(80px, 1fr));
       width: 100%;
       aspect-ratio: 7/6;
-      overflow: hidden; /* Add this */
-      border-bottom: 1px solid #ddd; /* Add this */
+      overflow: hidden;
+      border-bottom: 1px solid #ddd;
     }
 
     .react-calendar__year-view,
@@ -250,21 +646,21 @@ function App() {
       height: auto !important;
       display: flex;
       flex-direction: column;
-      justify-content: center;  /* Changed from space-between to center */
+      justify-content: center;
       align-items: center;
       padding: 0.5em;
       border-right: 1px solid #ddd;
       border-bottom: 1px solid #ddd;
       transition: background-color 0.2s;
-      min-height: 80px;  /* Added to ensure consistent height */
-      overflow: visible; /* Add this */
-      z-index: 1; /* Add this */
+      min-height: 80px;
+      overflow: visible;
+      z-index: 1;
     }
 
     /* Add styles for the date number */
     .react-calendar__tile abbr {
-      font-weight: bold;  /* Make all dates bold */
-      margin-bottom: 0.5em; /* Add some space between date and vote counter */
+      font-weight: bold;
+      margin-bottom: 0.5em;
     }
 
     .react-calendar__month-view__weekdays__weekday {
@@ -276,7 +672,6 @@ function App() {
     .react-calendar__tile:enabled:focus {
       background-color: #f3f4f6;
     }
-    /* ALSO THIS PART */
 
     .react-calendar__tile--now {
       background: inherit;
@@ -300,9 +695,6 @@ function App() {
       background-color: #e5e7eb;
     }
 
-    /* Trying to fix the variable tiling color as desired  */
-
-
     /* Navigation styles for different views */
     .react-calendar__navigation {
       display: flex;
@@ -321,7 +713,7 @@ function App() {
       flex: 0 1 auto;
       padding: 0 1em;
       font-size: 1.1em;
-      pointer-events: auto; /* Enable clicks */
+      pointer-events: auto;
       cursor: pointer;
     }
 
@@ -397,9 +789,9 @@ function App() {
 
     /* Add styles for vote counter */
     .vote-counter {
-      position: absolute;  /* Changed from static */
-      bottom: 0.5em;      /* Position at bottom */
-      left: 50%;          /* Center horizontally */
+      position: absolute;
+      bottom: 0.5em;
+      left: 50%;
       transform: translateX(-50%);
       font-size: 0.75em;
       color: #4B5563;
@@ -415,8 +807,6 @@ function App() {
     .react-calendar__tile:hover .vote-counter {
       opacity: 1;
     }
-
-    /* Remove all .proposed-date related styles as we're not using that class anymore */
 
     /* Add higher specificity for tile backgrounds */
     .react-calendar__tile .bg-green-300 {
@@ -477,320 +867,28 @@ function App() {
 
     /* Modify the existing abbr styles to only apply to current month */
     .react-calendar__month-view__days__day abbr {
-      font-weight: normal;  /* Default weight for all dates */
+      font-weight: normal;
       margin-bottom: 0.5em;
     }
 
     /* Add specific style for current month dates */
     .react-calendar__month-view__days__day:not(.react-calendar__month-view__days__day--neighboringMonth) abbr {
-      font-weight: bold;  /* Bold only for current month dates */
+      font-weight: bold;
     }
 
     /* Style for neighboring month dates */
     .react-calendar__month-view__days__day--neighboringMonth abbr {
-      color: #9CA3AF;  /* Light gray color for better visual distinction */
+      color: #9CA3AF;
     }
   `;
 
-  // Then, use the useEffect hook
+  // Apply the styles
   useEffect(() => {
     const styleElement = document.createElement('style');
     styleElement.textContent = calendarStyles;
     document.head.appendChild(styleElement);
     return () => styleElement.remove();
   }, [calendarStyles]);
-
-  const [currentUser] = useState(null); // Remove setCurrentUser since it's unused
-  const [potentialDate, setPotentialDate] = useState(null); // Add new state for potential date selection
-  
-  const blankPoll = {
-    id: '',
-    title: '',
-    creator: '',
-    dates: []
-  };
-
-  const [poll, setPoll] = useState(blankPoll);
-  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
-
-  const toggleAvailability = (dateIndex, participantName) => {
-    const updatedPoll = {...poll};
-    const dateToUpdate = updatedPoll.dates[dateIndex];
-    const participant = dateToUpdate.participants.find(p => p.name === currentUser);
-    
-    if (participant) {
-      participant.available = !participant.available;
-    } else {
-      dateToUpdate.participants.push({
-        name: currentUser,
-        available: true
-      });
-    }
-    setPoll(updatedPoll);
-  };
-
-  const defaultCalendarDate = useMemo(() => {
-    if (poll.dates.length === 0) return new Date();
-    
-    const dateGroups = poll.dates.reduce((acc, { date }) => {
-      const month = date.substring(0, 7); // YYYY-MM
-      acc[month] = (acc[month] || 0) + 1;
-      return acc;
-    }, {});
-
-    const monthWithMostDates = Object.entries(dateGroups)
-      .sort(([, a], [, b]) => b - a)[0][0];
-
-    return new Date(monthWithMostDates);
-  }, [poll.dates]);
-
-  const formatDateString = (date) => {
-    // Ensure we're working with a Date object
-    const d = new Date(date);
-    // Adjust for local timezone
-    const localDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-    return localDate.toISOString().split('T')[0];
-  };
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (potentialDate && popupRef.current && !popupRef.current.contains(event.target)) {
-        // Check if the click is not on a calendar tile
-        if (!event.target.closest('.react-calendar__tile')) {
-          setPotentialDate(null);
-        }
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [potentialDate]);
-
-  const deleteDate = (dateIndex) => {
-    setPoll(prevPoll => {
-      const updatedPoll = {...prevPoll};
-      updatedPoll.dates = [...prevPoll.dates];
-      updatedPoll.dates.splice(dateIndex, 1);
-      return updatedPoll;
-    });
-  };
-
-  const getDateEntry = (date) => {
-    const formattedDate = formatDateString(date);
-    return poll.dates.find(d => d.date === formattedDate);
-  };
-
-
-  const renderCalendarTile = ({ date, view }) => {
-    if (view !== 'month') return null;
-    
-    const dateEntry = getDateEntry(date);
-    if (!dateEntry) return null;
-  
-    const availableCount = dateEntry.participants.filter(p => p.available).length;
-    const totalCount = dateEntry.participants.length;
-    
-    // Return just the content, Calendar component will handle the container
-    return (
-      <div className="relative w-full h-full flex flex-col justify-between">
-        <div className="vote-counter flex flex-col items-center z-10">
-          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
-        </div>
-      </div>
-    );
-  };
-
-  
-
-  const sortedDates = useMemo(() => {
-    return [...poll.dates].sort((a, b) => new Date(a.date) - new Date(b.date));
-  }, [poll.dates]);
-
-  const handleAddComment = useCallback((dateString, text) => {
-    setPoll(prevPoll => ({
-      ...prevPoll,
-      dates: prevPoll.dates.map(date => 
-        date.date === dateString
-          ? {
-              ...date,
-              comments: [
-                ...(date.comments || []),
-                { author: currentUser, text }
-              ]
-            }
-          : date
-      )
-    }));
-  }, [currentUser]);
-
-  const renderDateSelector = () => (
-    <div className="flex gap-6 justify-center h-[calc(100vh-120px)]">
-      {/* Calendar section */}
-      <div className="w-[700px] h-[650px] flex-shrink-0 overflow-hidden">  {/* Removed relative and border */}
-        <Calendar
-          className="w-full h-full shadow-lg bg-white"
-          defaultValue={defaultCalendarDate}
-          tileContent={renderCalendarTile}
-          tileClassName={({ date }) => {
-            const dateEntry = getDateEntry(date);
-            if (!dateEntry) return null;
-            
-            const availableCount = dateEntry.participants.filter(p => p.available).length;
-            const totalCount = dateEntry.participants.length;
-            const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
-            
-            if (availabilityRatio > 0.6) return 'date-green';
-            if (availabilityRatio >= 0.4) return 'date-yellow';
-            return 'date-red';
-          }}
-          onClickDay={(date, event) => {
-            // Handle date selection consistently
-            const formattedDate = formatDateString(date);
-            const dateExists = poll.dates.some(d => d.date === formattedDate);
-            
-            if (!dateExists) {
-              // Calculate position relative to the clicked tile
-              const rect = event.target.getBoundingClientRect();
-              setPopupPosition({
-                x: rect.right + 10, // 10px offset from the right edge of the tile
-                y: rect.top
-              });
-              setPotentialDate({
-                date: formattedDate,
-                originalDate: date
-              });
-            }
-
-          }}
-          tileDisabled={({ date }) => {
-            const dateEntry = getDateEntry(date);
-            return !!dateEntry;
-          }}
-          allowPartialRange={true}
-          minDetail="year"
-          maxDetail="month"
-          defaultView="month"
-          activeStartDate={currentMonth}
-          onActiveStartDateChange={({ activeStartDate }) => setCurrentMonth(activeStartDate)}
-          value={null} // Add this to prevent auto-selection
-        />
-
-        {/* Reposition the popup */}
-        {potentialDate && (
-          <div 
-            ref={popupRef}
-            className="date-popup"
-            style={{
-              left: `${popupPosition.x}px`,
-              top: `${popupPosition.y}px`,
-              position: 'fixed'
-            }}
-          >
-            <div className="p-4">
-              <h3 className="text-lg font-semibold mb-4">
-                Add {formatAdjustedDate(potentialDate.date)}?
-              </h3>
-              <div className="flex justify-end gap-4">
-                <button
-                  onClick={() => setPotentialDate(null)}
-                  className="px-4 py-2 text-gray-600 hover:text-red-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setPoll(prevPoll => ({
-                      ...prevPoll,
-                      dates: [
-                        ...prevPoll.dates,
-                        {
-                          date: potentialDate.date,
-                          participants: [{ name: currentUser, available: true }],
-                          comments: []
-                        }
-                      ].sort((a, b) => new Date(a.date) - new Date(b.date))
-                    }));
-                    setPotentialDate(null);
-                  }}
-                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                >
-                  Add Date
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Dates list section */}
-      <div className="w-[500px] flex-grow"> {/* Changed from min/max-width to fixed width */}
-        <div className="shadow-lg bg-white p-6 h-full overflow-y-auto rounded-lg"> {/* Removed border, increased padding */}
-          <h2 className="text-xl font-semibold mb-8 sticky top-0 bg-white">Proposed Dates</h2> {/* Increased bottom margin */}
-          <div className="space-y-8"> {/* Increased gap between date items */}
-            {sortedDates.map((dateEntry) => {
-              const dateIndex = poll.dates.findIndex(d => d.date === dateEntry.date);
-              return (
-                <DateEntry
-                  key={dateEntry.date}
-                  dateEntry={dateEntry}
-                  dateIndex={dateIndex}
-                  onDeleteDate={deleteDate}
-                  onToggleAvailability={toggleAvailability}
-                  onAddComment={handleAddComment}
-                  currentUser={currentUser}
-                />
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Move your current poll view into PollView component
-  const PollView = () => {
-    const location = useLocation();
-    const pollData = location.state?.pollData;
-    
-    useEffect(() => {
-      if (pollData) {
-        // Only initialize the poll if it's empty or if it's a new poll
-        if (!poll.title || poll.id !== pollData.id) {
-          setPoll({
-            id: pollData.id,
-            title: pollData.title,
-            creator: currentUser,
-            dates: poll.dates || [] // Preserve existing dates if any
-          });
-        }
-      }
-    }, [pollData]); // Remove currentUser from dependencies
-
-    if (!currentUser) {
-      return <Navigate to="/login" />;
-    }
-
-    if (!poll.title && !pollData) {
-      return <Navigate to="/dashboard" />;
-    }
-
-    return (
-      <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center">
-            <CalendarIcon className="mr-2" />
-            <h1 className="text-2xl font-bold">{poll.title}</h1>
-          </div>
-          <div className="text-gray-600">
-            Logged in as: {currentUser}
-          </div>
-        </div>
-        {renderDateSelector()}
-      </div>
-    );
-  };
 
   return (
     <PollProvider>
@@ -810,7 +908,6 @@ function App() {
           <Route path="/poll/:id/entry" element={<PollView />} />
           <Route path="/poll/:id/admin" element={<AdminPanel />} />
           <Route path="/poll/:id/view" element={<SamplePoll />} />
-          <Route path="/poll/:id/blank" element={<BlankPoll />} />
           
           {/* 404 handling */}
           <Route path="/404" element={<NotFound />} />

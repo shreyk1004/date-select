@@ -5,7 +5,7 @@ import { usePoll } from '../contexts/PollContext';
 function PollLogin() {
   const { id: pollId } = useParams();
   const navigate = useNavigate();
-  const { getPoll, getPollSession, setPollSession, getPollParticipants } = usePoll();
+  const { getPoll, getPollSession, setPollSession, getPollUsers, addUserToPoll } = usePoll();
   const [selectedOption, setSelectedOption] = useState('');
   const [customName, setCustomName] = useState('');
   const [existingUsers, setExistingUsers] = useState([]);
@@ -16,42 +16,27 @@ function PollLogin() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        console.log('PollLogin: Getting poll for pollId:', pollId);
-        const poll = await getPoll(pollId);
-        console.log('PollLogin: Got poll result:', poll);
-        
-        // For test poll, always allow access
+        // For test poll, handle specially
         if (pollId === 'test') {
           setExistingUsers(['Alice', 'Bob', 'Charlie', 'David']);
           setLoading(false);
           return;
         }
 
+        // Get poll data to verify it exists
+        const poll = await getPoll(pollId);
+        
         if (!poll) {
-          console.log('PollLogin: No poll found, redirecting to 404');
           navigate('/404', { replace: true });
           return;
         }
-        
-        console.log('PollLogin: Poll found, continuing...');
 
-        // Load participants from database
-        console.log('PollLogin: Loading participants for pollId:', pollId);
-        const participants = await getPollParticipants(pollId);
-        console.log('PollLogin: Got participants:', participants);
-        setExistingUsers(participants);
+        // Load existing users
+        const users = await getPollUsers(pollId);
+        setExistingUsers(users);
         
-        const savedUsername = getPollSession(pollId);
-        console.log('PollLogin: Saved username:', savedUsername);
+        // No auto-login - always show the login form
         
-        if (savedUsername) {
-          const targetRoute = pollId === 'test' ? '/poll/test/entry' : `/poll/${pollId}/entry`;
-          console.log('PollLogin: Navigating to:', targetRoute);
-          navigate(targetRoute, { replace: true });
-          return;
-        }
-        
-        console.log('PollLogin: No saved username, showing login form');
         setLoading(false);
       } catch (error) {
         console.error('Error initializing poll login:', error);
@@ -60,21 +45,34 @@ function PollLogin() {
     };
 
     initialize();
-  }, [pollId, navigate, getPoll, getPollSession, getPollParticipants]);
+  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession]);
 
   // Don't render anything while loading
   if (loading) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading poll...</div>
+      </div>
+    );
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const username = selectedOption === 'other' ? customName : selectedOption;
     
-    if (!username.trim()) return;
+    console.log('PollLogin handleSubmit:', {
+      selectedOption,
+      customName,
+      finalUsername: username
+    });
+    
+    if (!username.trim()) {
+      setWarning('Please enter a username');
+      return;
+    }
 
-    if (existingUsers.includes(username) && !warning) {
-      setWarning('This name is already taken. Continue anyway?');
+    if (existingUsers.includes(username) && !warning.includes('Continue anyway')) {
+      setWarning(`Username "${username}" already exists. Continue anyway?`);
       return;
     }
 
@@ -82,23 +80,31 @@ function PollLogin() {
     setWarning('');
     
     try {
-      // Create user in Supabase for non-test polls
-      if (pollId !== 'test') {
-        console.log('PollLogin: Creating user in database:', username);
-        const { ensureUserExists } = await import('../services/pollService');
-        await ensureUserExists(pollId, username);
-        console.log('PollLogin: User created successfully');
+      // Add user to poll if new user
+      if (!existingUsers.includes(username)) {
+        await addUserToPoll(pollId, username);
       }
 
-      setPollSession(pollId, username);
-      // Special handling for test poll
+      // Don't save session - always show login form
+      console.log('PollLogin: Navigating with username:', username);
+
+      // Navigate to poll view
       if (pollId === 'test') {
-        navigate('/poll/test/entry');
+        navigate('/poll/test/entry', {
+          state: { username: username }
+        });
       } else {
-        navigate(`/poll/${pollId}/entry`);
+        // Get fresh poll data for navigation
+        const poll = await getPoll(pollId);
+        navigate(`/poll/${pollId}/entry`, { 
+          state: { 
+            username: username,
+            pollData: poll
+          }
+        });
       }
     } catch (error) {
-      console.error('Error creating user:', error);
+      console.error('Error joining poll:', error);
       setWarning('Error joining poll. Please try again.');
       setSubmitting(false);
     }
@@ -129,6 +135,7 @@ function PollLogin() {
                     setWarning('');
                   }}
                   className="text-blue-500"
+                  disabled={submitting}
                 />
                 <span>{name}</span>
               </label>
@@ -145,6 +152,7 @@ function PollLogin() {
                   setWarning('');
                 }}
                 className="text-blue-500"
+                disabled={submitting}
               />
               <span>Other</span>
             </label>
@@ -161,6 +169,7 @@ function PollLogin() {
               placeholder="Enter your name"
               className="w-full border rounded p-3"
               required
+              disabled={submitting}
             />
           )}
 

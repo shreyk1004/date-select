@@ -1,258 +1,284 @@
 import React, { createContext, useContext, useState } from 'react';
-import { supabase } from '../supabaseClient';
+import * as pollService from '../services/pollService';
 
 const PollContext = createContext(null);
 
-// Helper to get next 3 days
-const getNextThreeDays = () => {
-  const dates = [];
-  for (let i = 1; i <= 3; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    dates.push(localDate.toISOString().split('T')[0]);
-  }
-  return dates;
-};
-
-// Create sample poll with dynamic dates
-const [date1, date2, date3] = getNextThreeDays();
-
-const TEST_POLL = {
-  id: 'test',
-  title: 'Team Project Planning',
-  creator: 'Admin',
-  dates: [
-    {
-      date: date1,
-      participants: [
-        { name: 'Alice', available: true },
-        { name: 'Bob', available: false },
-        { name: 'Charlie', available: true },
-        { name: 'David', available: true }
-      ],
-      comments: [
-        { author: 'Alice', text: 'Morning works best for me' },
-        { author: 'Bob', text: 'Sorry, I have another meeting' },
-        { author: 'David', text: "I'm flexible on this day" }
-      ]
-    },
-    {
-      date: date2,
-      participants: [
-        { name: 'Alice', available: false },
-        { name: 'Bob', available: true },
-        { name: 'Charlie', available: true },
-        { name: 'David', available: false }
-      ],
-      comments: [
-        { author: 'Bob', text: 'This is perfect for me' },
-        { author: 'Alice', text: 'I have a doctor appointment' }
-      ]
-    },
-    {
-      date: date3,
-      participants: [
-        { name: 'Alice', available: true },
-        { name: 'Bob', available: true },
-        { name: 'Charlie', available: true },
-        { name: 'David', available: true }
-      ],
-      comments: [
-        { author: 'Charlie', text: 'This date works for everyone!' },
-        { author: 'David', text: 'Perfect, I can prepare the presentation' }
-      ]
-    }
-  ],
-  participants: ['Alice', 'Bob', 'Charlie', 'David'],
-  status: 'active'
-};
-
 export function PollProvider({ children }) {
-  const [polls, setPolls] = useState({ test: TEST_POLL });  // Initialize with test poll
-  const [userSession, setUserSession] = useState(() => {
-    const saved = localStorage.getItem('pollUserSession');
+  const [pollCache, setPollCache] = useState({});
+  const [userSessions, setUserSessions] = useState(() => {
+    const saved = localStorage.getItem('pollUserSessions');
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Add adminTokens state
-  const [adminTokens, setAdminTokens] = useState(() => {
-    const saved = localStorage.getItem('adminTokens');
-    return saved ? JSON.parse(saved) : {};
-  });
-
+  // Save user session for a poll
   const setPollSession = (pollId, username) => {
-    setUserSession(prev => {
+    setUserSessions(prev => {
       const updated = { ...prev, [pollId]: username };
-      localStorage.setItem('pollUserSession', JSON.stringify(updated));
+      localStorage.setItem('pollUserSessions', JSON.stringify(updated));
       return updated;
     });
   };
 
-  const getPollSession = (pollId) => userSession[pollId];
+  // Get saved user session for a poll
+  const getPollSession = (pollId) => {
+    return userSessions[pollId];
+  };
 
-  const getPollParticipants = async (pollId) => {
-    // Mock data for test poll
-    if (pollId === 'test') {
-      return ['Alice', 'Bob', 'Charlie', 'David'];
-    }
-    
-    // Get participants from Supabase
+  // Clear user session for a poll
+  const clearPollSession = (pollId) => {
+    setUserSessions(prev => {
+      const updated = { ...prev };
+      delete updated[pollId];
+      localStorage.setItem('pollUserSessions', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Validate if a poll code exists
+  const validatePollCode = async (pollCode) => {
     try {
-      console.log('getPollParticipants: Querying for pollId:', pollId);
-      const { data, error } = await supabase
-        .from('poll_users')
-        .select('username')
-        .eq('poll_code', pollId);
-      
-      console.log('getPollParticipants result:', { data, error });
-      
-      if (error) {
-        console.error('Error getting poll participants:', error);
-        return [];
+      return await pollService.validatePollCode(pollCode);
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // Get complete poll data
+  const getPoll = async (pollCode) => {
+    try {
+      // Return test poll data for 'test' code
+      if (pollCode === 'test') {
+        return pollService.getTestPollData();
       }
+
+      // Check cache first
+      if (pollCache[pollCode]) {
+        return pollCache[pollCode];
+      }
+
+      // Fetch from database
+      const pollData = await pollService.getCompletePollData(pollCode);
       
-      return data ? data.map(user => user.username) : [];
-    } catch (err) {
-      console.error('Error getting poll participants:', err);
+      // Cache the result
+      setPollCache(prev => ({
+        ...prev,
+        [pollCode]: pollData
+      }));
+
+      return pollData;
+    } catch (error) {
+      console.error('Error getting poll:', error);
+      return null;
+    }
+  };
+
+  // Refresh poll data from database
+  const refreshPoll = async (pollCode) => {
+    try {
+      if (pollCode === 'test') {
+        return pollService.getTestPollData();
+      }
+
+      const pollData = await pollService.getCompletePollData(pollCode);
+      
+      // Update cache
+      setPollCache(prev => ({
+        ...prev,
+        [pollCode]: pollData
+      }));
+
+      return pollData;
+    } catch (error) {
+      console.error('Error refreshing poll:', error);
+      return null;
+    }
+  };
+
+  // Get poll participants/users
+  const getPollUsers = async (pollCode) => {
+    try {
+      return await pollService.getPollUsers(pollCode);
+    } catch (error) {
+      console.error('Error getting poll users:', error);
       return [];
     }
   };
 
-  // Add or update admin token for a poll
-  const setAdminToken = (pollId, token) => {
-    setAdminTokens(prev => {
-      const updated = { ...prev, [pollId]: token };
-      localStorage.setItem('adminTokens', JSON.stringify(updated));
-      return updated;
-    });
+  // Add user to poll
+  const addUserToPoll = async (pollCode, username) => {
+    try {
+      const result = await pollService.addUserToPoll(pollCode, username);
+      
+      // Invalidate cache to force refresh
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error adding user to poll:', error);
+      throw error;
+    }
   };
 
-  // Verify admin token for a poll
-  const checkAdminToken = (pollId, token) => {
-    // Accept any token for test poll
-    if (pollId === 'test') {
-      return true;
+  // Add date to poll
+  const addDateToPoll = async (pollCode, date, username) => {
+    try {
+      const result = await pollService.addDateToPoll(pollCode, date, username);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error adding date to poll:', error);
+      throw error;
     }
-    return adminTokens[pollId] === token;
   };
+
+  // Remove date from poll
+  const removeDateFromPoll = async (pollCode, date) => {
+    try {
+      const result = await pollService.removeDateFromPoll(pollCode, date);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error removing date from poll:', error);
+      throw error;
+    }
+  };
+
+  // Set user availability for a date
+  const setUserAvailability = async (pollCode, date, username, available) => {
+    try {
+      const result = await pollService.setUserAvailability(pollCode, date, username, available);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error setting user availability:', error);
+      throw error;
+    }
+  };
+
+  // Add comment to date
+  const addCommentToDate = async (pollCode, date, username, comment) => {
+    try {
+      const result = await pollService.addCommentToDate(pollCode, date, username, comment);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      throw error;
+    }
+  };
+
+  // Verify admin access
+  const verifyAdminAccess = async (pollCode, adminToken) => {
+    try {
+      return await pollService.verifyAdminAccess(pollCode, adminToken);
+    } catch (error) {
+      console.error('Error verifying admin access:', error);
+      return false;
+    }
+  };
+
+  // Get admin info for a poll
+  const getPollAdminInfo = async (pollCode, adminToken) => {
+    try {
+      return await pollService.getPollAdminInfo(pollCode, adminToken);
+    } catch (error) {
+      console.error('Error getting poll admin info:', error);
+      throw error;
+    }
+  };
+
+  // For backward compatibility - these maintain local state for UI components
+  const [localPolls, setLocalPolls] = useState({ test: pollService.getTestPollData() });
 
   const setPoll = (pollId, updatedPoll) => {
-    setPolls(prev => ({
+    setLocalPolls(prev => ({
       ...prev,
       [pollId]: updatedPoll
     }));
   };
 
-  const getPoll = async (pollId) => {
-    console.log('Getting poll:', pollId); // Debug log
-    console.log('Available polls:', polls); // Debug log
-    
-    // Handle test poll
-    if (pollId === 'test') {
-      return polls.test;
-    }
-    
-    // Check local state first
-    if (polls[pollId]) {
-      return polls[pollId];
-    }
-    
-    // Check Supabase database
-    try {
-      console.log('Querying Supabase for pollId:', pollId);
-      const { data, error } = await supabase
-        .from('polls')
-        .select('*')
-        .eq('code', pollId)
-        .single();
-      
-      console.log('Supabase getPoll result:', { data, error });
-      
-      if (error) {
-        console.log('Supabase getPoll error:', error);
-        return null;
-      }
-      
-      if (data) {
-        console.log('Found poll data:', data);
-        // Convert Supabase format to our poll format
-        const pollData = {
-          id: data.code,
-          title: data.title,
-          creator: data.admin_name,
-          dates: [], // We'll load dates separately if needed
-          participants: [], // We'll load participants separately if needed
-          status: 'active'
-        };
-        
-        console.log('Converted poll data:', pollData);
-        
-        // Cache in local state
-        setPolls(prev => ({
-          ...prev,
-          [pollId]: pollData
-        }));
-        
-        return pollData;
-      }
-      
-      return null;
-    } catch (err) {
-      console.error('Error getting poll:', err);
-      return null;
-    }
+  const getLocalPoll = (pollId) => {
+    return localPolls[pollId];
   };
 
-  const validatePollCode = async (pollCode) => {
-    console.log('Validating:', pollCode); // Debug log
+  // Check admin token (for local access)
+  const checkAdminToken = (pollId, token) => {
+    if (pollId === 'test') return true;
     
-    // Always accept test poll
-    if (pollCode === 'test') {
-      return true;
-    }
-    
-    // Check if poll exists in local state
-    if (polls[pollCode]) {
-      return true;
-    }
-    
-    // Check Supabase database
-    try {
-      const { data, error } = await supabase
-        .from('polls')
-        .select('code')
-        .eq('code', pollCode)
-        .single();
-      
-      if (error) {
-        console.log('Supabase validation error:', error);
-        return false;
-      }
-      
-      return !!data;
-    } catch (err) {
-      console.error('Error validating poll code:', err);
-      return false;
-    }
+    const storedToken = localStorage.getItem(`poll_${pollId}_admin_token`);
+    return storedToken === token;
   };
 
   return (
     <PollContext.Provider value={{
-      polls,
-      setPolls,
+      // Core poll operations
+      validatePollCode,
       getPoll,
-      setPoll,  // Add this
+      refreshPoll,
+      getPollUsers,
+      addUserToPoll,
+      addDateToPoll,
+      removeDateFromPoll,
+      setUserAvailability,
+      addCommentToDate,
+      
+      // User session management
       setPollSession,
       getPollSession,
-      getPollParticipants,
-      setAdminToken,
+      clearPollSession,
+      
+      // Admin operations
+      verifyAdminAccess,
+      getPollAdminInfo,
       checkAdminToken,
-      validatePollCode
+      
+      // Local state (for backward compatibility)
+      setPoll,
+      getLocalPoll,
+      polls: localPolls,
+      setPolls: setLocalPolls
     }}>
       {children}
     </PollContext.Provider>
   );
 }
 
-export const usePoll = () => useContext(PollContext);
+export const usePoll = () => {
+  const context = useContext(PollContext);
+  if (!context) {
+    throw new Error('usePoll must be used within a PollProvider');
+  }
+  return context;
+};

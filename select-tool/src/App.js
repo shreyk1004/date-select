@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback, memo, useRef } from 'react';
-import { Calendar as CalendarIcon, Trash2 } from 'lucide-react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Calendar as CalendarIcon, Trash2, Settings } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom';
 import Calendar from 'react-calendar';
 import { PollProvider } from './contexts/PollContext';
+import { usePoll } from './contexts/PollContext';
 import { getCompletePollData, addDateToPoll, removeDateFromPoll, setUserAvailability, addCommentToDate } from './services/pollService';
 
 // Import all components
@@ -144,6 +145,81 @@ const DateEntry = memo(({
     </div>
   );
 });
+
+// AdminButton component for accessing admin panel
+const AdminButton = ({ pollId, pollTitle }) => {
+  const navigate = useNavigate();
+  const [showPopup, setShowPopup] = useState(false);
+  const [inputToken, setInputToken] = useState('');
+  const [error, setError] = useState('');
+  const { checkAdminToken } = usePoll();
+
+  const handleAdminAccess = () => {
+    if (checkAdminToken(pollId, inputToken)) {
+      navigate(`/poll/${pollId}/admin`, {
+        state: { 
+          adminToken: inputToken, 
+          isVerified: true,
+          pollData: {
+            title: pollTitle
+          }
+        }
+      });
+    } else {
+      setError('Invalid admin token');
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setShowPopup(true)}
+        className="fixed bottom-4 left-4 p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+        title="Admin Settings"
+      >
+        <Settings className="w-6 h-6 text-gray-600" />
+      </button>
+
+      {/* Admin popup overlay */}
+      {showPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+            <h2 className="text-xl font-bold mb-4">Admin Access</h2>
+            {error && (
+              <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+                {error}
+              </div>
+            )}
+            <input
+              type="text"
+              value={inputToken}
+              onChange={(e) => {
+                setInputToken(e.target.value);
+                setError('');
+              }}
+              placeholder="Enter admin token"
+              className="w-full border rounded p-2 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowPopup(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdminAccess}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Verify
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 // Move PollView component outside of App to avoid closure issues
 const PollView = () => {
@@ -540,6 +616,10 @@ const PollView = () => {
           </div>
         </div>
       </div>
+      <AdminButton 
+        pollId={pollId} 
+        pollTitle={poll.title}
+      />
     </div>
   );
 };

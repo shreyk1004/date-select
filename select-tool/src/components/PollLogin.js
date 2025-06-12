@@ -5,66 +5,108 @@ import { usePoll } from '../contexts/PollContext';
 function PollLogin() {
   const { id: pollId } = useParams();
   const navigate = useNavigate();
-  const { getPoll, getPollSession, setPollSession } = usePoll();
+  const { getPoll, getPollSession, setPollSession, getPollUsers, addUserToPoll } = usePoll();
   const [selectedOption, setSelectedOption] = useState('');
   const [customName, setCustomName] = useState('');
   const [existingUsers, setExistingUsers] = useState([]);
   const [warning, setWarning] = useState('');
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const initialize = async () => {
-      const poll = getPoll(pollId);
-      
-      // For test poll, always allow access
-      if (pollId === 'test') {
-        setExistingUsers(['Alice', 'Bob', 'Charlie', 'David']);
+      try {
+        // For test poll, handle specially
+        if (pollId === 'test') {
+          setExistingUsers(['Alice', 'Bob', 'Charlie', 'David']);
+          setLoading(false);
+          return;
+        }
+
+        // Get poll data to verify it exists
+        const poll = await getPoll(pollId);
+        
+        if (!poll) {
+          navigate('/404', { replace: true });
+          return;
+        }
+
+        // Load existing users
+        const users = await getPollUsers(pollId);
+        setExistingUsers(users);
+        
+        // No auto-login - always show the login form
+        
         setLoading(false);
-        return;
-      }
-
-      if (!poll) {
+      } catch (error) {
+        console.error('Error initializing poll login:', error);
         navigate('/404', { replace: true });
-        return;
       }
-
-      // Check for saved session after setting users
-      setExistingUsers(poll.participants || []);
-      const savedUsername = getPollSession(pollId);
-      
-      if (savedUsername) {
-        navigate(pollId === 'test' ? '/poll/test/entry' : `/poll/${pollId}/entry`, { replace: true });
-        return;
-      }
-      
-      setLoading(false);
     };
 
     initialize();
-  }, [pollId, navigate, getPoll, getPollSession]);
+  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession]);
 
   // Don't render anything while loading
   if (loading) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading poll...</div>
+      </div>
+    );
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const username = selectedOption === 'other' ? customName : selectedOption;
     
-    if (!username.trim()) return;
-
-    if (existingUsers.includes(username) && !warning) {
-      setWarning('This name is already taken. Continue anyway?');
+    console.log('PollLogin handleSubmit:', {
+      selectedOption,
+      customName,
+      finalUsername: username
+    });
+    
+    if (!username.trim()) {
+      setWarning('Please enter a username');
       return;
     }
 
-    setPollSession(pollId, username);
-    // Special handling for test poll
-    if (pollId === 'test') {
-      navigate('/poll/test/entry');
-    } else {
-      navigate(`/poll/${pollId}/entry`);
+    if (existingUsers.includes(username) && !warning.includes('Continue anyway')) {
+      setWarning(`Username "${username}" already exists. Continue anyway?`);
+      return;
+    }
+
+    setSubmitting(true);
+    setWarning('');
+    
+    try {
+      // Add user to poll if new user
+      if (!existingUsers.includes(username)) {
+        await addUserToPoll(pollId, username);
+      }
+
+      // Don't save session - always show login form
+      console.log('PollLogin: Navigating with username:', username);
+
+      // Navigate to poll view
+      if (pollId === 'test') {
+        navigate('/poll/test/entry', {
+          state: { username: username }
+        });
+      } else {
+        // Get fresh poll data for navigation
+        const poll = await getPoll(pollId);
+        navigate(`/poll/${pollId}/entry`, { 
+          state: { 
+            username: username,
+            pollData: poll
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error joining poll:', error);
+      setWarning('Error joining poll. Please try again.');
+      setSubmitting(false);
     }
   };
 
@@ -93,6 +135,7 @@ function PollLogin() {
                     setWarning('');
                   }}
                   className="text-blue-500"
+                  disabled={submitting}
                 />
                 <span>{name}</span>
               </label>
@@ -109,6 +152,7 @@ function PollLogin() {
                   setWarning('');
                 }}
                 className="text-blue-500"
+                disabled={submitting}
               />
               <span>Other</span>
             </label>
@@ -125,14 +169,20 @@ function PollLogin() {
               placeholder="Enter your name"
               className="w-full border rounded p-3"
               required
+              disabled={submitting}
             />
           )}
 
           <button
             type="submit"
-            className="w-full bg-blue-500 text-white px-4 py-3 rounded hover:bg-blue-600"
+            disabled={submitting}
+            className={`w-full px-4 py-3 rounded text-white ${
+              submitting 
+                ? 'bg-gray-400 cursor-not-allowed' 
+                : 'bg-blue-500 hover:bg-blue-600'
+            }`}
           >
-            Continue
+            {submitting ? 'Joining...' : 'Continue'}
           </button>
         </form>
       </div>

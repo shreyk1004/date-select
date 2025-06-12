@@ -4,6 +4,7 @@ import ReactCalendar from 'react-calendar';
 import { Calendar as CalendarIcon, Settings } from 'lucide-react';
 import { usePoll } from '../contexts/PollContext';  // Add this import
 import DateEntry from './DateEntry';
+import { getCompletePollData, addDateToPoll, removeDateFromPoll, setUserAvailability, addCommentToDate } from '../services/pollService';
 import 'react-calendar/dist/Calendar.css';
 
 const AdminButton = ({ pollId, adminToken, pollTitle }) => {  // Add pollTitle prop
@@ -83,17 +84,62 @@ const AdminButton = ({ pollId, adminToken, pollTitle }) => {  // Add pollTitle p
 function BlankPoll() {
   const { id: pollId } = useParams();
   const location = useLocation();
-  const [currentUser] = useState(location.state?.adminName || 'Anonymous');
+  
+  console.log('BlankPoll location.state:', location.state);
+  
+  const [currentUser] = useState(location.state?.username || location.state?.adminName || 'Anonymous');
+  
+  console.log('BlankPoll currentUser:', currentUser);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const popupRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   
-  // Update poll initialization to use pollTitle from location state
+  // Update poll initialization to load from Supabase
   const [poll, setPoll] = useState({
     id: pollId,
-    title: location.state?.pollTitle || localStorage.getItem(`pollTitle_${pollId}`) || 'Untitled Poll',
+    title: 'Loading...',
     creator: currentUser,
-    dates: [] // Make sure this is initialized as an empty array
+    dates: []
   });
+
+  // Load poll data from Supabase on mount
+  useEffect(() => {
+    const loadPollData = async () => {
+      try {
+        setLoading(true);
+        console.log('Loading poll data for:', pollId);
+        const pollData = await getCompletePollData(pollId);
+        console.log('Loaded poll data:', pollData);
+        setPoll(pollData);
+        setError(null);
+      } catch (err) {
+        console.error('Error loading poll data:', err);
+        setError('Failed to load poll data');
+        // Set fallback data
+        setPoll({
+          id: pollId,
+          title: location.state?.pollTitle || 'Poll',
+          creator: currentUser,
+          dates: []
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPollData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollId]); // Only depend on pollId to avoid infinite loops
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading poll...</div>
+      </div>
+    );
+  }
 
   // Add effect to save title to localStorage when it changes
   useEffect(() => {
@@ -138,68 +184,106 @@ function BlankPoll() {
   };
 
   // Date management functions
-  // Update toggleAvailability to properly handle the state update
-  const toggleAvailability = (dateIndex, participantName) => {
-    setPoll(prevPoll => {
-      const updatedDates = [...prevPoll.dates];
-      const dateToUpdate = {...updatedDates[dateIndex]};
+  // Update toggleAvailability to save to Supabase and update local state
+  const toggleAvailability = async (dateIndex, participantName) => {
+    try {
+      const dateEntry = poll.dates[dateIndex];
+      const participant = dateEntry.participants.find(p => p.name === participantName);
+      const newAvailable = participant ? !participant.available : true;
       
-      if (!dateToUpdate.participants) {
-        dateToUpdate.participants = [];
-      }
+      console.log('Toggling availability:', { pollId, date: dateEntry.date, participantName, newAvailable });
+      
+      // Save to Supabase first
+      await setUserAvailability(pollId, dateEntry.date, participantName, newAvailable);
+      
+      // Then update local state
+      setPoll(prevPoll => {
+        const updatedDates = [...prevPoll.dates];
+        const dateToUpdate = {...updatedDates[dateIndex]};
+        
+        if (!dateToUpdate.participants) {
+          dateToUpdate.participants = [];
+        }
 
-      const participantIndex = dateToUpdate.participants.findIndex(p => p.name === participantName);
-      
-      if (participantIndex >= 0) {
-        // Toggle existing participant
-        dateToUpdate.participants = [...dateToUpdate.participants];
-        dateToUpdate.participants[participantIndex] = {
-          ...dateToUpdate.participants[participantIndex],
-          available: !dateToUpdate.participants[participantIndex].available
+        const participantIndex = dateToUpdate.participants.findIndex(p => p.name === participantName);
+        
+        if (participantIndex >= 0) {
+          // Toggle existing participant
+          dateToUpdate.participants = [...dateToUpdate.participants];
+          dateToUpdate.participants[participantIndex] = {
+            ...dateToUpdate.participants[participantIndex],
+            available: newAvailable
+          };
+        } else {
+          // Add new participant
+          dateToUpdate.participants = [
+            ...dateToUpdate.participants,
+            { name: participantName, available: newAvailable }
+          ];
+        }
+
+        updatedDates[dateIndex] = dateToUpdate;
+        
+        return {
+          ...prevPoll,
+          dates: updatedDates
         };
-      } else {
-        // Add new participant
-        dateToUpdate.participants = [
-          ...dateToUpdate.participants,
-          { name: participantName, available: true }
-        ];
-      }
+      });
+    } catch (error) {
+      console.error('Error toggling availability:', error);
+      setError('Failed to update availability');
+    }
+  };
 
-      updatedDates[dateIndex] = dateToUpdate;
+  // Update deleteDate to save to Supabase and update local state
+  const deleteDate = async (dateIndex) => {
+    try {
+      const dateEntry = poll.dates[dateIndex];
+      console.log('Deleting date:', { pollId, date: dateEntry.date });
       
-      return {
+      // Save to Supabase first
+      await removeDateFromPoll(pollId, dateEntry.date);
+      
+      // Then update local state
+      setPoll(prevPoll => ({
         ...prevPoll,
-        dates: updatedDates
-      };
-    });
+        dates: prevPoll.dates.filter((_, index) => index !== dateIndex)
+      }));
+    } catch (error) {
+      console.error('Error deleting date:', error);
+      setError('Failed to delete date');
+    }
   };
 
-  // Update deleteDate to properly handle the state update
-  const deleteDate = (dateIndex) => {
-    setPoll(prevPoll => ({
-      ...prevPoll,
-      dates: prevPoll.dates.filter((_, index) => index !== dateIndex)
-    }));
-  };
-
-  // Fix the handleAddComment function to use dateIndex properly
-  const handleAddComment = useCallback((dateString, text) => {
-    setPoll(prevPoll => ({
-      ...prevPoll,
-      dates: prevPoll.dates.map(date => 
-        // Remove the T00:00:00 from the comparison
-        date.date === dateString.split('T')[0]
-          ? {
-              ...date,
-              comments: [
-                ...(date.comments || []),
-                { author: currentUser, text }
-              ]
-            }
-          : date
-      )
-    }));
-  }, [currentUser]);
+  // Fix the handleAddComment function to save to Supabase and update local state
+  const handleAddComment = useCallback(async (dateString, text) => {
+    try {
+      console.log('Adding comment:', { pollId, date: dateString, user: currentUser, text });
+      
+      // Save to Supabase first
+      await addCommentToDate(pollId, dateString.split('T')[0], currentUser, text);
+      
+      // Then update local state
+      setPoll(prevPoll => ({
+        ...prevPoll,
+        dates: prevPoll.dates.map(date => 
+          // Remove the T00:00:00 from the comparison
+          date.date === dateString.split('T')[0]
+            ? {
+                ...date,
+                comments: [
+                  ...(date.comments || []),
+                  { author: currentUser, text }
+                ]
+              }
+            : date
+        )
+      }));
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      setError('Failed to add comment');
+    }
+  }, [pollId, currentUser]);
 
   // Calendar tile rendering
   const renderCalendarTile = ({ date, view }) => {
@@ -353,6 +437,18 @@ function BlankPoll() {
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+          {error}
+          <button
+            onClick={() => setError(null)}
+            className="ml-2 text-red-500 hover:text-red-700"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <CalendarIcon className="mr-2" />
@@ -497,19 +593,30 @@ function BlankPoll() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    setPoll(prevPoll => ({
-                      ...prevPoll,
-                      dates: [
-                        ...prevPoll.dates,
-                        {
-                          date: potentialDate.date,
-                          participants: [{ name: currentUser, available: true }],
-                          comments: []
-                        }
-                      ].sort((a, b) => new Date(a.date) - new Date(b.date))
-                    }));
-                    setPotentialDate(null);
+                  onClick={async () => {
+                    try {
+                      console.log('Adding date:', { pollId, date: potentialDate.date, user: currentUser });
+                      
+                      // Save to Supabase first
+                      await addDateToPoll(pollId, potentialDate.date, currentUser);
+                      
+                      // Then update local state
+                      setPoll(prevPoll => ({
+                        ...prevPoll,
+                        dates: [
+                          ...prevPoll.dates,
+                          {
+                            date: potentialDate.date,
+                            participants: [{ name: currentUser, available: true }],
+                            comments: []
+                          }
+                        ].sort((a, b) => new Date(a.date) - new Date(b.date))
+                      }));
+                      setPotentialDate(null);
+                    } catch (error) {
+                      console.error('Error adding date:', error);
+                      setError('Failed to add date');
+                    }
                   }}
                   className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
                 >

@@ -21,6 +21,7 @@ create table if not exists public.polls (
     title text not null,
     admin_name text not null,
     admin_token text not null,
+    recovery_email text,
     created_at timestamp with time zone default now()
 );
 

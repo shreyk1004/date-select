@@ -5,6 +5,7 @@ import { usePoll } from '../contexts/PollContext';
 function LandingPage() {
   const [pollCode, setPollCode] = useState('');
   const [error, setError] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
   const navigate = useNavigate();
   const { validatePollCode } = usePoll();
 
@@ -12,15 +13,26 @@ function LandingPage() {
     navigate('/poll/create');
   };
 
-  const handlePollCodeSubmit = (e) => {
+  const handlePollCodeSubmit = async (e) => {
     e.preventDefault();
     const code = pollCode.trim();
     
-    if (code === 'test' || validatePollCode(code)) {
-      // Navigate to the join username page for this specific poll
-      navigate(`/poll/${code}/join`);
-    } else {
-      setError('Invalid poll code');
+    setIsValidating(true);
+    setError('');
+    
+    try {
+      const isValid = await validatePollCode(code);
+      if (isValid) {
+        // Navigate to the poll login page for this specific poll
+        navigate(`/poll/${code}`);
+      } else {
+        setError('Invalid poll code');
+      }
+    } catch (error) {
+      console.error('Error validating poll code:', error);
+      setError('Error validating poll code. Please try again.');
+    } finally {
+      setIsValidating(false);
     }
   };
 
@@ -67,9 +79,14 @@ function LandingPage() {
               />
               <button
                 type="submit"
-                className="w-full bg-green-500 text-white px-4 py-3 rounded hover:bg-green-600"
+                disabled={isValidating}
+                className={`w-full px-4 py-3 rounded text-white ${
+                  isValidating 
+                    ? 'bg-gray-400 cursor-not-allowed' 
+                    : 'bg-green-500 hover:bg-green-600'
+                }`}
               >
-                Join
+                {isValidating ? 'Validating...' : 'Join'}
               </button>
             </form>
           </div>

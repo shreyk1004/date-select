@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CalendarIcon, ClipboardCopy, Users, Share2 } from 'lucide-react';
-import { supabase } from '../supabaseClient';
+import { usePoll } from '../contexts/PollContext';
 
 function AdminPanel() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { getPollAdminInfo } = usePoll();
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pollDetails, setPollDetails] = useState(null);
-  const [userCount, setUserCount] = useState(0);
-  const [dateCount, setDateCount] = useState(0);
 
   useEffect(() => {
     const fetchPollDetails = async () => {
@@ -26,60 +26,14 @@ function AdminPanel() {
           return;
         }
 
-        // Fetch poll data from Supabase
-        const { data: pollData, error: pollError } = await supabase
-          .from('polls')
-          .select('*')
-          .eq('code', id)
-          .eq('admin_token', adminToken)
-          .single();
-        
-        if (pollError) {
-          throw new Error(`Failed to verify admin access: ${pollError.message}`);
-        }
-
-        if (!pollData) {
-          throw new Error("Admin token doesn't match this poll");
-        }
-
-        // Count users in this poll
-        const { count: usersCount, error: usersError } = await supabase
-          .from('poll_users')
-          .select('*', { count: 'exact' })
-          .eq('poll_code', id);
-
-        if (usersError) {
-          console.error("Error counting users:", usersError);
-        }
-        
-        // Count dates in this poll
-        const { count: datesCount, error: datesError } = await supabase
-          .from('poll_dates')
-          .select('*', { count: 'exact' })
-          .eq('poll_code', id);
-
-        if (datesError) {
-          console.error("Error counting dates:", datesError);
-        }
-
-        // Set poll details and stats
-        setPollDetails({
-          id: pollData.id,
-          code: pollData.code,
-          title: pollData.title,
-          adminName: pollData.admin_name,
-          adminToken: adminToken,
-          recoveryEmail: pollData.recovery_email,
-          createdAt: new Date(pollData.created_at).toLocaleDateString()
-        });
-        
-        setUserCount(usersCount || 0);
-        setDateCount(datesCount || 0);
-        
+        // Get poll admin info
+        const adminInfo = await getPollAdminInfo(id, adminToken);
+        setPollDetails(adminInfo);
         setIsLoading(false);
+        
       } catch (err) {
         console.error('Error fetching poll details:', err);
-        setError(`Error: ${err.message}`);
+        setError(err.message || 'Error loading poll details');
         setIsLoading(false);
       }
     };
@@ -90,7 +44,7 @@ function AdminPanel() {
       setError("No poll ID provided");
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, getPollAdminInfo]);
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -100,14 +54,24 @@ function AdminPanel() {
 
   const handleViewPoll = () => {
     if (pollDetails) {
-      navigate(`/poll/${id}`, { 
-        state: { username: pollDetails.adminName } 
+      navigate(`/poll/${id}/entry`, { 
+        state: { 
+          username: pollDetails.adminName,
+          pollData: {
+            id: id,
+            title: pollDetails.title
+          }
+        } 
       });
     }
   };
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading admin panel...</div>
+      </div>
+    );
   }
 
   if (error) {
@@ -144,7 +108,7 @@ function AdminPanel() {
               <Users className="text-blue-500 mr-3" />
               <div>
                 <p className="text-sm text-blue-700">Participants</p>
-                <p className="text-2xl font-bold">{userCount}</p>
+                <p className="text-2xl font-bold">{pollDetails.userCount}</p>
               </div>
             </div>
             
@@ -152,7 +116,7 @@ function AdminPanel() {
               <CalendarIcon className="text-green-500 mr-3" />
               <div>
                 <p className="text-sm text-green-700">Proposed Dates</p>
-                <p className="text-2xl font-bold">{dateCount}</p>
+                <p className="text-2xl font-bold">{pollDetails.dateCount}</p>
               </div>
             </div>
           </div>
@@ -201,10 +165,10 @@ function AdminPanel() {
               </label>
               <div className="flex">
                 <div className="py-2 px-3 bg-gray-50 rounded-l border-y border-l flex-grow overflow-auto text-sm">
-                  {`${window.location.origin}/poll/${pollDetails.code}/join`}
+                  {`${window.location.origin}/poll/${pollDetails.code}`}
                 </div>
                 <button 
-                  onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+                  onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}`)}
                   className="bg-blue-500 text-white px-3 rounded-r hover:bg-blue-600"
                   title="Copy share link to clipboard"
                 >
@@ -244,7 +208,7 @@ function AdminPanel() {
           </button>
           
           <button
-            onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+            onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}`)}
             className="flex items-center justify-center bg-green-500 text-white px-4 py-3 rounded hover:bg-green-600"
           >
             <Share2 className="mr-2" size={20} />

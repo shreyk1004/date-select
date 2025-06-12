@@ -555,7 +555,13 @@ const PollView = () => {
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
-          <CalendarIcon className="mr-2" />
+          <button
+            onClick={() => navigate('/')}
+            className="mr-2 p-1 rounded hover:bg-gray-100 transition-colors"
+            title="Go to Home"
+          >
+            <CalendarIcon className="w-6 h-6" />
+          </button>
           <h1 className="text-2xl font-bold">{poll.title}</h1>
         </div>
         <div className="flex items-center gap-4">

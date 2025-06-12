@@ -225,9 +225,19 @@ const AdminButton = ({ pollId, pollTitle }) => {
 const PollView = () => {
   const location = useLocation();
   const { id: pollId } = useParams();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [currentUser] = useState(location.state?.username || 'Anonymous');
+  
+  // User session management
+  // eslint-disable-next-line no-unused-vars
+  const [currentUser, setCurrentUser] = useState(() => {
+    // Try to get user from location state first, then localStorage
+    return location.state?.username || 
+           localStorage.getItem(`poll_${pollId}_currentUser`) || 
+           null;
+  });
+  
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const popupRef = useRef(null);
   const [potentialDate, setPotentialDate] = useState(null);
@@ -243,6 +253,32 @@ const PollView = () => {
   
   console.log('PollView location.state:', location.state);
   console.log('PollView currentUser:', currentUser);
+
+  // Save user session when it changes
+  useEffect(() => {
+    if (currentUser && pollId) {
+      localStorage.setItem(`poll_${pollId}_currentUser`, currentUser);
+    }
+  }, [currentUser, pollId]);
+
+  // Handle user switching
+  const handleSwitchUser = () => {
+    // Clear the stored user session
+    localStorage.removeItem(`poll_${pollId}_currentUser`);
+    // Navigate back to login for this poll
+    navigate(`/poll/${pollId}`, { 
+      state: { 
+        forceLogin: true 
+      } 
+    });
+  };
+
+  // Utility function for logout (can be used later if needed)
+  // eslint-disable-next-line no-unused-vars
+  const handleLogout = () => {
+    localStorage.removeItem(`poll_${pollId}_currentUser`);
+    navigate('/');
+  };
   
   // Load poll data from Supabase on mount
   useEffect(() => {
@@ -267,7 +303,7 @@ const PollView = () => {
         setPoll({
           id: pollId,
           title: location.state?.pollData?.title || 'Poll',
-          creator: currentUser,
+          creator: currentUser || 'Unknown',
           dates: []
         });
       } finally {
@@ -459,30 +495,53 @@ const PollView = () => {
   }
 
   if (!currentUser) {
-    return <Navigate to={`/poll/${pollId}`} />;
+    console.log('No current user found, redirecting to login');
+    return <Navigate to={`/poll/${pollId}`} replace />;
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-red-50 text-red-700 p-6 rounded-lg shadow-md max-w-md">
+          <h2 className="text-xl font-bold mb-4">Error</h2>
+          <p className="mb-4">{error}</p>
+          <div className="space-y-2">
+            <button
+              onClick={handleSwitchUser}
+              className="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Back to Login
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 min-h-screen">
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
-          {error}
-          <button
-            onClick={() => setError(null)}
-            className="ml-2 text-red-500 hover:text-red-700"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <CalendarIcon className="mr-2" />
           <h1 className="text-2xl font-bold">{poll.title}</h1>
         </div>
-        <div className="text-gray-600">
-          Logged in as: {currentUser}
+        <div className="flex items-center gap-4">
+          <div className="text-gray-600">
+            Logged in as: <span className="font-semibold">{currentUser}</span>
+          </div>
+          <button
+            onClick={handleSwitchUser}
+            className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+            title="Switch to a different user"
+          >
+            Switch User
+          </button>
         </div>
       </div>
 

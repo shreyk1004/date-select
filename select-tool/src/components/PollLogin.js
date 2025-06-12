@@ -11,6 +11,7 @@ function PollLogin() {
   const [existingUsers, setExistingUsers] = useState([]);
   const [warning, setWarning] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading poll...');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -35,7 +36,22 @@ function PollLogin() {
         const users = await getPollUsers(pollId);
         setExistingUsers(users);
         
-        // No auto-login - always show the login form
+        // Check for auto-login (unless forced to show login)
+        const forceLogin = location.state?.forceLogin;
+        const storedUser = localStorage.getItem(`poll_${pollId}_currentUser`);
+        
+        if (!forceLogin && storedUser && users.includes(storedUser)) {
+          // Auto-login with stored user
+          console.log('Auto-logging in user:', storedUser);
+          setLoadingMessage(`Logging you in as ${storedUser}...`);
+          navigate(`/poll/${pollId}/entry`, {
+            state: { 
+              username: storedUser,
+              pollData: poll
+            }
+          });
+          return;
+        }
         
         setLoading(false);
       } catch (error) {
@@ -45,13 +61,13 @@ function PollLogin() {
     };
 
     initialize();
-  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession]);
+  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession, location.state?.forceLogin]);
 
   // Don't render anything while loading
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading poll...</div>
+        <div className="text-lg">{loadingMessage}</div>
       </div>
     );
   }
@@ -85,28 +101,34 @@ function PollLogin() {
         await addUserToPoll(pollId, username);
       }
 
-      // Don't save session - always show login form
-      console.log('PollLogin: Navigating with username:', username);
-
-      // Navigate to poll view
-      if (pollId === 'test') {
-        navigate('/poll/test/entry', {
-          state: { username: username }
-        });
-      } else {
-        // Get fresh poll data for navigation
-        const poll = await getPoll(pollId);
-        navigate(`/poll/${pollId}/entry`, { 
-          state: { 
-            username: username,
-            pollData: poll
-          }
-        });
-      }
+      // Use the common login handler
+      await handleUserLogin(username);
     } catch (error) {
       console.error('Error joining poll:', error);
       setWarning('Error joining poll. Please try again.');
       setSubmitting(false);
+    }
+  };
+
+  const handleUserLogin = async (username) => {
+    try {
+      await setPollSession(pollId, { username });
+      
+      // Store user in localStorage for persistence
+      localStorage.setItem(`poll_${pollId}_currentUser`, username);
+      
+      // Get complete poll data for navigation
+      const pollData = await getPoll(pollId);
+      
+      navigate(`/poll/${pollId}/entry`, {
+        state: { 
+          username,
+          pollData
+        }
+      });
+    } catch (error) {
+      console.error('Error during login:', error);
+      alert('Failed to log in. Please try again.');
     }
   };
 

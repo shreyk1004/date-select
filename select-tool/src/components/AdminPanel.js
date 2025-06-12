@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CalendarIcon, ClipboardCopy, Users, Share2 } from 'lucide-react';
+import { CalendarIcon, ClipboardCopy, Users, Share2, Plus, Trash2, UserPlus } from 'lucide-react';
 import { usePoll } from '../contexts/PollContext';
 
 function AdminPanel() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getPollAdminInfo } = usePoll();
+  const { getPollAdminInfo, addUserToPoll, removeUserFromPoll, getPollUsersWithStats } = usePoll();
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pollDetails, setPollDetails] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [userOperationLoading, setUserOperationLoading] = useState(false);
 
   useEffect(() => {
     const fetchPollDetails = async () => {
@@ -26,9 +30,14 @@ function AdminPanel() {
           return;
         }
 
-        // Get poll admin info
-        const adminInfo = await getPollAdminInfo(id, adminToken);
+        // Get poll admin info and user stats in parallel
+        const [adminInfo, userStats] = await Promise.all([
+          getPollAdminInfo(id, adminToken),
+          getPollUsersWithStats(id)
+        ]);
+        
         setPollDetails(adminInfo);
+        setUsers(userStats);
         setIsLoading(false);
         
       } catch (err) {
@@ -44,7 +53,7 @@ function AdminPanel() {
       setError("No poll ID provided");
       setIsLoading(false);
     }
-  }, [id, getPollAdminInfo]);
+  }, [id, getPollAdminInfo, getPollUsersWithStats]);
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -63,6 +72,53 @@ function AdminPanel() {
           }
         } 
       });
+    }
+  };
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    if (!newUsername.trim()) return;
+    
+    setUserOperationLoading(true);
+    try {
+      await addUserToPoll(id, newUsername.trim());
+      
+      // Refresh user list
+      const updatedUsers = await getPollUsersWithStats(id);
+      setUsers(updatedUsers);
+      
+      // Reset form
+      setNewUsername('');
+      setShowAddUser(false);
+      
+      alert(`User "${newUsername.trim()}" added successfully!`);
+    } catch (error) {
+      console.error('Error adding user:', error);
+      alert(`Error adding user: ${error.message}`);
+    } finally {
+      setUserOperationLoading(false);
+    }
+  };
+
+  const handleRemoveUser = async (username) => {
+    if (!confirm(`Are you sure you want to remove "${username}"? This will delete all their votes and comments.`)) {
+      return;
+    }
+    
+    setUserOperationLoading(true);
+    try {
+      await removeUserFromPoll(id, username);
+      
+      // Refresh user list
+      const updatedUsers = await getPollUsersWithStats(id);
+      setUsers(updatedUsers);
+      
+      alert(`User "${username}" removed successfully!`);
+    } catch (error) {
+      console.error('Error removing user:', error);
+      alert(`Error removing user: ${error.message}`);
+    } finally {
+      setUserOperationLoading(false);
     }
   };
 
@@ -194,6 +250,101 @@ function AdminPanel() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* User Management Section */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold flex items-center">
+              <Users className="mr-2" />
+              Manage Users ({users.length})
+            </h3>
+            <button
+              onClick={() => setShowAddUser(!showAddUser)}
+              className="flex items-center px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+              disabled={userOperationLoading}
+            >
+              <UserPlus className="mr-1" size={16} />
+              Add User
+            </button>
+          </div>
+
+          {/* Add User Form */}
+          {showAddUser && (
+            <div className="bg-gray-50 p-4 rounded-lg mb-4">
+              <form onSubmit={handleAddUser} className="flex gap-3">
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="Enter username"
+                  className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={userOperationLoading}
+                  required
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
+                  disabled={userOperationLoading || !newUsername.trim()}
+                >
+                  {userOperationLoading ? 'Adding...' : 'Add'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddUser(false);
+                    setNewUsername('');
+                  }}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                  disabled={userOperationLoading}
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Users List */}
+          <div className="space-y-3">
+            {users.length === 0 ? (
+              <div className="text-gray-500 text-center py-4">
+                No users have joined this poll yet.
+              </div>
+            ) : (
+              users.map((user) => (
+                <div
+                  key={user.username}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center">
+                      <span className="font-medium">{user.username}</span>
+                      {user.username === pollDetails?.adminName && (
+                        <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
+                          Admin
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      {user.responseCount} votes • {user.commentCount} comments • 
+                      Joined {new Date(user.joinedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  
+                  {user.username !== pollDetails?.adminName && (
+                    <button
+                      onClick={() => handleRemoveUser(user.username)}
+                      className="ml-3 p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                      disabled={userOperationLoading}
+                      title={`Remove ${user.username}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
 

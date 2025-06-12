@@ -360,12 +360,39 @@ export const getPollAdminInfo = async (pollCode, adminToken) => {
   try {
     const { data, error } = await supabase
       .from('polls')
-      .select('*')
+      .select('id, code, title, admin_name, admin_token, created_at, recovery_email')
       .eq('code', pollCode)
       .eq('admin_token', adminToken)
       .single();
     
-    if (error) throw new Error(`Access denied: ${error.message}`);
+    if (error) {
+      // If recovery_email column doesn't exist, try without it
+      if (error.message.includes('recovery_email') || error.message.includes('column')) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('polls')
+          .select('id, code, title, admin_name, admin_token, created_at')
+          .eq('code', pollCode)
+          .eq('admin_token', adminToken)
+          .single();
+        
+        if (fallbackError) throw new Error(`Access denied: ${fallbackError.message}`);
+        
+        // Use fallback data
+        return {
+          id: fallbackData.id,
+          code: fallbackData.code,
+          title: fallbackData.title,
+          adminName: fallbackData.admin_name,
+          adminToken: fallbackData.admin_token,
+          recoveryEmail: null, // No recovery email column
+          createdAt: new Date(fallbackData.created_at).toLocaleDateString(),
+          userCount: 0,
+          dateCount: 0
+        };
+      } else {
+        throw new Error(`Access denied: ${error.message}`);
+      }
+    }
     
     // Get counts
     const { count: userCount } = await supabase
@@ -384,7 +411,7 @@ export const getPollAdminInfo = async (pollCode, adminToken) => {
       title: data.title,
       adminName: data.admin_name,
       adminToken: data.admin_token,
-      recoveryEmail: data.recovery_email,
+      recoveryEmail: data.recovery_email || null,
       createdAt: new Date(data.created_at).toLocaleDateString(),
       userCount: userCount || 0,
       dateCount: dateCount || 0
@@ -455,4 +482,112 @@ export const getTestPollData = () => {
     users: ['Alice', 'Bob', 'Charlie', 'David'],
     status: 'active'
   };
+};
+
+// Remove user from poll and clean up all their data
+export const removeUserFromPoll = async (pollCode, username) => {
+  if (pollCode === 'test') return { success: true };
+  
+  try {
+    // Check if user is the admin
+    const { data: poll } = await supabase
+      .from('polls')
+      .select('admin_name')
+      .eq('code', pollCode)
+      .single();
+    
+    if (poll && poll.admin_name === username) {
+      throw new Error('Cannot remove the poll creator/admin');
+    }
+    
+    // Remove user's votes/responses
+    const { error: responsesError } = await supabase
+      .from('poll_responses')
+      .delete()
+      .eq('poll_code', pollCode)
+      .eq('username', username);
+    
+    if (responsesError) {
+      console.error('Error removing user responses:', responsesError);
+    }
+    
+    // Remove user's comments
+    const { error: commentsError } = await supabase
+      .from('poll_comments')
+      .delete()
+      .eq('poll_code', pollCode)
+      .eq('username', username);
+    
+    if (commentsError) {
+      console.error('Error removing user comments:', commentsError);
+    }
+    
+    // Remove user from poll_users
+    const { error: userError } = await supabase
+      .from('poll_users')
+      .delete()
+      .eq('poll_code', pollCode)
+      .eq('username', username);
+    
+    if (userError) {
+      throw new Error(`Failed to remove user: ${userError.message}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error removing user from poll:', error);
+    throw error;
+  }
+};
+
+// Get poll users with participation statistics
+export const getPollUsersWithStats = async (pollCode) => {
+  if (pollCode === 'test') {
+    return [
+      { username: 'Alice', responseCount: 5, commentCount: 2, joinedAt: new Date().toISOString() },
+      { username: 'Bob', responseCount: 3, commentCount: 1, joinedAt: new Date().toISOString() },
+      { username: 'Charlie', responseCount: 4, commentCount: 0, joinedAt: new Date().toISOString() }
+    ];
+  }
+  
+  try {
+    // Get all users
+    const { data: users, error: usersError } = await supabase
+      .from('poll_users')
+      .select('username, created_at')
+      .eq('poll_code', pollCode)
+      .order('created_at', { ascending: true });
+    
+    if (usersError) throw new Error(`Failed to get users: ${usersError.message}`);
+    
+    // Get all responses for this poll
+    const { data: responses, error: responseError } = await supabase
+      .from('poll_responses')
+      .select('username')
+      .eq('poll_code', pollCode);
+    
+    // Get all comments for this poll
+    const { data: comments, error: commentError } = await supabase
+      .from('poll_comments')
+      .select('username')
+      .eq('poll_code', pollCode);
+    
+    // Combine the data
+    const usersWithStats = users.map(user => {
+      const userResponses = responses?.filter(r => r.username === user.username) || [];
+      const userComments = comments?.filter(c => c.username === user.username) || [];
+      
+      return {
+        username: user.username,
+        responseCount: userResponses.length,
+        commentCount: userComments.length,
+        joinedAt: user.created_at
+      };
+    });
+    
+    return usersWithStats;
+  } catch (error) {
+    console.error('Error getting users with stats:', error);
+    throw error;
+  }
 };

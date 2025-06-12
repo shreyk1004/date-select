@@ -90,3 +90,13 @@ create policy "Allow authenticated insert for poll_users"
 on public.poll_users for insert
 to authenticated, anon
 with check (true);
+
+create policy "Allow delete for poll_users"
+on public.poll_users for delete
+to authenticated, anon
+using (true);
+
+create policy "Allow update for poll_users"
+on public.poll_users for update
+to authenticated, anon
+using (true);

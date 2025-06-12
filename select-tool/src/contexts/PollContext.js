@@ -109,7 +109,7 @@ export function PollProvider({ children }) {
     try {
       const result = await pollService.addUserToPoll(pollCode, username);
       
-      // Invalidate cache to force refresh
+      // Invalidate cache
       setPollCache(prev => {
         const updated = { ...prev };
         delete updated[pollCode];
@@ -119,6 +119,25 @@ export function PollProvider({ children }) {
       return result;
     } catch (error) {
       console.error('Error adding user to poll:', error);
+      throw error;
+    }
+  };
+
+  // Remove user from poll
+  const removeUserFromPoll = async (pollCode, username) => {
+    try {
+      const result = await pollService.removeUserFromPoll(pollCode, username);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error removing user from poll:', error);
       throw error;
     }
   };
@@ -219,6 +238,12 @@ export function PollProvider({ children }) {
     }
   };
 
+  // Get poll users with stats
+  const getPollUsersWithStats = async (pollCode) => {
+    const result = await pollService.getPollUsersWithStats(pollCode);
+    return result;
+  };
+
   // For backward compatibility - these maintain local state for UI components
   const [localPolls, setLocalPolls] = useState({ test: pollService.getTestPollData() });
 
@@ -268,7 +293,11 @@ export function PollProvider({ children }) {
       setPoll,
       getLocalPoll,
       polls: localPolls,
-      setPolls: setLocalPolls
+      setPolls: setLocalPolls,
+      
+      // New user management operations
+      removeUserFromPoll,
+      getPollUsersWithStats
     }}>
       {children}
     </PollContext.Provider>

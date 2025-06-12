@@ -1,20 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CalendarIcon, ClipboardCopy, Users, Share2, Plus, Trash2, UserPlus } from 'lucide-react';
+import { CalendarIcon, ClipboardCopy, Users, Share2, Plus, Trash2, UserPlus, Lock, Unlock } from 'lucide-react';
 import { usePoll } from '../contexts/PollContext';
 
 function AdminPanel() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { getPollAdminInfo, addUserToPoll, removeUserFromPoll, getPollUsersWithStats } = usePoll();
+  const { getPollAdminInfo, addUserToPoll, removeUserFromPoll, getPollUsersWithStats, blockDate, unblockDate, getCompletePollData } = usePoll();
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pollDetails, setPollDetails] = useState(null);
   const [users, setUsers] = useState([]);
+  const [dates, setDates] = useState([]);
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [userOperationLoading, setUserOperationLoading] = useState(false);
+  const [dateOperationLoading, setDateOperationLoading] = useState(false);
 
   useEffect(() => {
     const fetchPollDetails = async () => {
@@ -31,13 +33,15 @@ function AdminPanel() {
         }
 
         // Get poll admin info and user stats in parallel
-        const [adminInfo, userStats] = await Promise.all([
+        const [adminInfo, userStats, pollData] = await Promise.all([
           getPollAdminInfo(id, adminToken),
-          getPollUsersWithStats(id)
+          getPollUsersWithStats(id),
+          getCompletePollData(id)
         ]);
         
         setPollDetails(adminInfo);
         setUsers(userStats);
+        setDates(pollData.dates);
         setIsLoading(false);
         
       } catch (err) {
@@ -53,7 +57,7 @@ function AdminPanel() {
       setError("No poll ID provided");
       setIsLoading(false);
     }
-  }, [id, getPollAdminInfo, getPollUsersWithStats]);
+  }, [id, getPollAdminInfo, getPollUsersWithStats, getCompletePollData]);
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -119,6 +123,46 @@ function AdminPanel() {
       alert(`Error removing user: ${error.message}`);
     } finally {
       setUserOperationLoading(false);
+    }
+  };
+
+  const handleBlockDate = async (date) => {
+    if (!confirm(`Are you sure you want to block the date ${new Date(date).toLocaleDateString()}? Users won't be able to vote or comment on this date.`)) {
+      return;
+    }
+    
+    setDateOperationLoading(true);
+    try {
+      await blockDate(id, date);
+      
+      // Refresh dates list
+      const updatedPollData = await getCompletePollData(id);
+      setDates(updatedPollData.dates);
+      
+      alert(`Date ${new Date(date).toLocaleDateString()} blocked successfully!`);
+    } catch (error) {
+      console.error('Error blocking date:', error);
+      alert(`Error blocking date: ${error.message}`);
+    } finally {
+      setDateOperationLoading(false);
+    }
+  };
+
+  const handleUnblockDate = async (date) => {
+    setDateOperationLoading(true);
+    try {
+      await unblockDate(id, date);
+      
+      // Refresh dates list
+      const updatedPollData = await getCompletePollData(id);
+      setDates(updatedPollData.dates);
+      
+      alert(`Date ${new Date(date).toLocaleDateString()} unblocked successfully!`);
+    } catch (error) {
+      console.error('Error unblocking date:', error);
+      alert(`Error unblocking date: ${error.message}`);
+    } finally {
+      setDateOperationLoading(false);
     }
   };
 
@@ -344,6 +388,100 @@ function AdminPanel() {
                   )}
                 </div>
               ))
+            )}
+          </div>
+        </div>
+
+        {/* Date Management Section */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold flex items-center">
+              <CalendarIcon className="mr-2" />
+              Manage Dates ({dates.length})
+            </h3>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                className="px-3 py-1 border rounded text-sm"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleBlockDate(e.target.value);
+                    e.target.value = ''; // Clear the input
+                  }
+                }}
+                title="Select a date to block"
+              />
+              <span className="text-sm text-gray-600">Block any date</span>
+            </div>
+          </div>
+
+          {/* Dates List */}
+          <div className="space-y-3">
+            {dates.length === 0 ? (
+              <div className="text-gray-500 text-center py-4">
+                No dates have been proposed for this poll yet.
+              </div>
+            ) : (
+              dates
+                .sort((a, b) => new Date(a.date) - new Date(b.date))
+                .map((date) => {
+                  const availableCount = date.participants.filter(p => p.available).length;
+                  const totalCount = date.participants.length;
+                  const availabilityRatio = totalCount > 0 ? availableCount / totalCount : 0;
+                  
+                  return (
+                    <div
+                      key={date.date}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        date.blocked ? 'bg-red-50 border border-red-200' : 'bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {new Date(date.date).toLocaleDateString()}
+                          </span>
+                          {date.blocked && (
+                            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded font-medium">
+                              BLOCKED
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {availableCount}/{totalCount} available ({Math.round(availabilityRatio * 100)}%)
+                          {date.comments && date.comments.length > 0 && (
+                            <span> • {date.comments.length} comments</span>
+                          )}
+                          {date.blocked && date.blockedAt && (
+                            <span> • Blocked {new Date(date.blockedAt).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {date.blocked ? (
+                          <button
+                            onClick={() => handleUnblockDate(date.date)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
+                            disabled={dateOperationLoading}
+                            title="Unblock this date"
+                          >
+                            <Unlock size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleBlockDate(date.date)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            disabled={dateOperationLoading}
+                            title="Block this date"
+                          >
+                            <Lock size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>

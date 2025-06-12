@@ -92,11 +92,72 @@ export const getCompletePollData = async (pollCode) => {
     // Get all dates
     const { data: datesData, error: datesError } = await supabase
       .from('poll_dates')
-      .select('date')
+      .select('date, blocked, blocked_at')
       .eq('poll_code', pollCode)
       .order('date');
     
-    if (datesError) throw new Error(`Failed to fetch dates: ${datesError.message}`);
+    console.log('getCompletePollData - Dates query result:', { datesData, datesError });
+    
+    if (datesError) {
+      // If blocked columns don't exist, try without them
+      if (datesError.message.includes('blocked')) {
+        const { data: fallbackDatesData, error: fallbackError } = await supabase
+          .from('poll_dates')
+          .select('date')
+          .eq('poll_code', pollCode)
+          .order('date');
+        
+        if (fallbackError) throw new Error(`Failed to fetch dates: ${fallbackError.message}`);
+        
+        // Convert to expected format with blocked = false
+        const datesWithBlockedFalse = (fallbackDatesData || []).map(dateObj => ({
+          ...dateObj,
+          blocked: false,
+          blocked_at: null
+        }));
+        
+        // Continue with fallback data
+        const dates = datesWithBlockedFalse.map(dateObj => {
+          const date = dateObj.date;
+          
+          // Get participants for this date
+          const participants = (responsesData || [])
+            .filter(response => response.date === date)
+            .map(response => ({
+              name: response.username,
+              available: response.available
+            }));
+          
+          // Get comments for this date
+          const comments = (commentsData || [])
+            .filter(comment => comment.date === date)
+            .map(comment => ({
+              author: comment.username,
+              text: comment.comment
+            }));
+          
+          return {
+            date,
+            participants,
+            comments,
+            blocked: false,
+            blockedAt: null
+          };
+        });
+        
+        return {
+          id: pollData.code,
+          title: pollData.title,
+          creator: pollData.admin_name,
+          adminToken: pollData.admin_token,
+          dates: dates,
+          users: (usersData || []).map(user => user.username),
+          status: 'active'
+        };
+      } else {
+        throw new Error(`Failed to fetch dates: ${datesError.message}`);
+      }
+    }
     
     // Get all responses
     const { data: responsesData, error: responsesError } = await supabase
@@ -138,7 +199,9 @@ export const getCompletePollData = async (pollCode) => {
       return {
         date,
         participants,
-        comments
+        comments,
+        blocked: dateObj.blocked || false,
+        blockedAt: dateObj.blocked_at
       };
     });
     
@@ -276,6 +339,111 @@ export const removeDateFromPoll = async (pollCode, date) => {
     return { success: true };
   } catch (error) {
     console.error('Error removing date from poll:', error);
+    throw error;
+  }
+};
+
+// Block a date (prevents new votes but preserves existing data)
+export const blockDate = async (pollCode, date) => {
+  if (pollCode === 'test') return { success: true };
+  
+  try {
+    // First, check if the blocked columns exist by trying to query them
+    let hasBlockedColumns = true;
+    try {
+      await supabase
+        .from('poll_dates')
+        .select('blocked')
+        .limit(1);
+    } catch (columnCheckError) {
+      if (columnCheckError.message.includes('blocked')) {
+        hasBlockedColumns = false;
+      }
+    }
+    
+    if (!hasBlockedColumns) {
+      throw new Error('Database migration required: Please run the SQL script from supabase/add_blocked_dates.sql in your Supabase Dashboard to add blocked date support.');
+    }
+    
+    // Check if the date exists in poll_dates
+    const { data: existingDates, error: checkError } = await supabase
+      .from('poll_dates')
+      .select('date, blocked')
+      .eq('poll_code', pollCode)
+      .eq('date', date);
+    
+    if (checkError) {
+      throw new Error(`Error checking date: ${checkError.message}`);
+    }
+    
+    console.log('BlockDate - Existing dates found:', existingDates);
+    
+    if (!existingDates || existingDates.length === 0) {
+      // Date doesn't exist, create it as blocked
+      console.log('BlockDate - Creating new blocked date');
+      const { error: insertError } = await supabase
+        .from('poll_dates')
+        .insert([{
+          poll_code: pollCode,
+          date: date,
+          blocked: true,
+          blocked_at: new Date().toISOString()
+        }]);
+      
+      if (insertError) {
+        throw new Error(`Failed to create blocked date: ${insertError.message}`);
+      }
+      console.log('BlockDate - Successfully created blocked date');
+    } else {
+      // Date exists, just update it to blocked
+      console.log('BlockDate - Updating existing date to blocked');
+      const { data: updateData, error: updateError } = await supabase
+        .from('poll_dates')
+        .update({
+          blocked: true,
+          blocked_at: new Date().toISOString()
+        })
+        .eq('poll_code', pollCode)
+        .eq('date', date)
+        .select();
+      
+      if (updateError) {
+        throw new Error(`Failed to block date: ${updateError.message}`);
+      }
+      console.log('BlockDate - Update result:', updateData);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error blocking date:', error);
+    throw error;
+  }
+};
+
+// Unblock a date (allows voting again)
+export const unblockDate = async (pollCode, date) => {
+  if (pollCode === 'test') return { success: true };
+  
+  try {
+    const { error } = await supabase
+      .from('poll_dates')
+      .update({
+        blocked: false,
+        blocked_at: null
+      })
+      .eq('poll_code', pollCode)
+      .eq('date', date);
+    
+    if (error) {
+      if (error.message.includes('blocked')) {
+        throw new Error('Please run the database migration to add blocked date support. See the SQL script in supabase/add_blocked_dates.sql');
+      }
+      throw new Error(`Failed to unblock date: ${error.message}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error unblocking date:', error);
     throw error;
   }
 };
@@ -561,13 +729,13 @@ export const getPollUsersWithStats = async (pollCode) => {
     if (usersError) throw new Error(`Failed to get users: ${usersError.message}`);
     
     // Get all responses for this poll
-    const { data: responses, error: responseError } = await supabase
+    const { data: responses } = await supabase
       .from('poll_responses')
       .select('username')
       .eq('poll_code', pollCode);
     
     // Get all comments for this poll
-    const { data: comments, error: commentError } = await supabase
+    const { data: comments } = await supabase
       .from('poll_comments')
       .select('username')
       .eq('poll_code', pollCode);

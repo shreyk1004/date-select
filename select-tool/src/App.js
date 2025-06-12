@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useNavi
 import Calendar from 'react-calendar';
 import { PollProvider } from './contexts/PollContext';
 import { usePoll } from './contexts/PollContext';
-import { getCompletePollData, addDateToPoll, removeDateFromPoll, setUserAvailability, addCommentToDate } from './services/pollService';
 
 // Import all components
 import LandingPage from './components/LandingPage';
@@ -86,13 +85,20 @@ const DateEntry = memo(({
   }, []);
 
   return (
-    <div className="p-4 rounded-lg hover:bg-gray-50 border-transparent shadow-sm">
+    <div className={`p-4 rounded-lg hover:bg-gray-50 border-transparent shadow-sm ${dateEntry.blocked ? 'opacity-70 bg-gray-50' : ''}`}>
       <div className="flex justify-between items-start mb-2">
-        <h3 className="font-medium">
-          {formatAdjustedDate(dateEntry.date)}
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-medium">
+            {formatAdjustedDate(dateEntry.date)}
+          </h3>
+          {dateEntry.blocked && (
+            <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded font-medium">
+              BLOCKED
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
-          {renderAvailabilityButton()}
+          {!dateEntry.blocked && renderAvailabilityButton()}
           <button 
             onClick={() => onDeleteDate(dateIndex)}
             className="text-red-500 hover:text-red-700"
@@ -119,28 +125,36 @@ const DateEntry = memo(({
           </div>
         )}
         
-        <div className="flex mt-2">
-          <input 
-            type="text"
-            value={commentDraft}
-            onChange={e => setCommentDraft(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleCommentSubmit();
-              }
-            }}
-            placeholder="Add a comment"
-            className="flex-grow border rounded p-1 text-sm mr-2"
-          />
-          <button 
-            type="button"
-            onClick={handleCommentSubmit}
-            className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
-          >
-            Post
-          </button>
-        </div>
+        {!dateEntry.blocked && (
+          <div className="flex mt-2">
+            <input 
+              type="text"
+              value={commentDraft}
+              onChange={e => setCommentDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleCommentSubmit();
+                }
+              }}
+              placeholder="Add a comment"
+              className="flex-grow border rounded p-1 text-sm mr-2"
+            />
+            <button 
+              type="button"
+              onClick={handleCommentSubmit}
+              className="bg-blue-500 text-white px-2 py-1 rounded text-sm"
+            >
+              Post
+            </button>
+          </div>
+        )}
+        
+        {dateEntry.blocked && (
+          <div className="text-sm text-gray-500 italic mt-2">
+            Comments and voting disabled for blocked dates
+          </div>
+        )}
       </div>
     </div>
   );
@@ -229,6 +243,9 @@ const PollView = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
+  // Use PollContext functions
+  const { refreshPoll, addDateToPoll, removeDateFromPoll, setUserAvailability, addCommentToDate } = usePoll();
+  
   // User session management
   // eslint-disable-next-line no-unused-vars
   const [currentUser, setCurrentUser] = useState(() => {
@@ -286,16 +303,20 @@ const PollView = () => {
       try {
         setLoading(true);
         console.log('PollView loading poll data for:', pollId);
-        const pollData = await getCompletePollData(pollId);
+        const pollData = await refreshPoll(pollId);
         console.log('PollView loaded poll data:', pollData);
         
-        setPoll({
-          id: pollData.id,
-          title: pollData.title,
-          creator: pollData.creator,
-          dates: pollData.dates
-        });
-        setError(null);
+        if (pollData) {
+          setPoll({
+            id: pollData.id,
+            title: pollData.title,
+            creator: pollData.creator,
+            dates: pollData.dates
+          });
+          setError(null);
+        } else {
+          throw new Error('Poll not found');
+        }
       } catch (err) {
         console.error('Error loading poll data:', err);
         setError('Failed to load poll data');
@@ -411,7 +432,7 @@ const PollView = () => {
       console.error('Error adding comment:', error);
       setError('Failed to add comment');
     }
-  }, [poll.id, currentUser]);
+  }, [poll.id, currentUser, addCommentToDate]);
 
   // Helper functions
   const formatDateString = (date) => {
@@ -449,19 +470,25 @@ const PollView = () => {
     const availableCount = dateEntry.participants.filter(p => p.available).length;
     const totalCount = dateEntry.participants.length;
     const userStatus = getParticipantStatus(dateEntry);
+    const isBlocked = dateEntry.blocked;
     
     return (
       <>
         <div className="vote-counter">
-          <div className="text-sm font-semibold">{`${availableCount}/${totalCount} available`}</div>
+          <div className="text-xs font-semibold">{`${availableCount}/${totalCount} available`}</div>
+          {isBlocked && (
+            <div className="text-xs text-red-600 font-medium mt-1">BLOCKED</div>
+          )}
         </div>
         <div 
           className={`absolute top-1 right-1 w-3 h-3 rounded-full ${
-            userStatus.exists
-              ? userStatus.available
-                ? 'bg-green-500'
-                : 'bg-red-500'
-              : 'bg-gray-400'
+            isBlocked
+              ? 'bg-gray-300 border border-red-500'
+              : userStatus.exists
+                ? userStatus.available
+                  ? 'bg-green-500'
+                  : 'bg-red-500'
+                : 'bg-gray-400'
           }`}
         />
       </>
@@ -553,6 +580,9 @@ const PollView = () => {
             tileClassName={({ date }) => {
               const dateEntry = getDateEntry(date);
               if (!dateEntry) return null;
+              
+              // Check if date is blocked
+              if (dateEntry.blocked) return 'date-blocked';
               
               const availableCount = dateEntry.participants.filter(p => p.available).length;
               const totalCount = dateEntry.participants.length;
@@ -932,10 +962,10 @@ function App() {
       bottom: 0.5em;
       left: 50%;
       transform: translateX(-50%);
-      font-size: 0.75em;
+      font-size: 0.65em;
       color: #4B5563;
       background-color: rgba(255, 255, 255, 0.9);
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 4px;
       opacity: 0;
       transition: opacity 0.2s;
@@ -975,10 +1005,43 @@ function App() {
       color: black !important;
     }
 
+    /* Add styles for blocked dates */
+    .react-calendar__tile.date-blocked {
+      background-color: #f3f4f6 !important;
+      border: 2px solid #9ca3af !important;
+      color: #6b7280 !important;
+      opacity: 0.7;
+      position: relative;
+    }
+
+    .react-calendar__tile.date-blocked::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 5px,
+        rgba(156, 163, 175, 0.3) 5px,
+        rgba(156, 163, 175, 0.3) 10px
+      );
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .react-calendar__tile.date-blocked .vote-counter {
+      z-index: 2;
+      position: relative;
+    }
+
     /* Make sure the abbr (date number) inherits the color */
     .react-calendar__tile.date-green abbr,
     .react-calendar__tile.date-yellow abbr,
-    .react-calendar__tile.date-red abbr {
+    .react-calendar__tile.date-red abbr,
+    .react-calendar__tile.date-blocked abbr {
       color: inherit;
     }
 

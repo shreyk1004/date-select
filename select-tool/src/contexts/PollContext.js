@@ -244,6 +244,54 @@ export function PollProvider({ children }) {
     return result;
   };
 
+  // Get complete poll data (with cache support)
+  const getCompletePollData = async (pollCode) => {
+    try {
+      return await pollService.getCompletePollData(pollCode);
+    } catch (error) {
+      console.error('Error getting complete poll data:', error);
+      throw error;
+    }
+  };
+
+  // Block a date
+  const blockDate = async (pollCode, date) => {
+    try {
+      const result = await pollService.blockDate(pollCode, date);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error blocking date:', error);
+      throw error;
+    }
+  };
+
+  // Unblock a date
+  const unblockDate = async (pollCode, date) => {
+    try {
+      const result = await pollService.unblockDate(pollCode, date);
+      
+      // Invalidate cache
+      setPollCache(prev => {
+        const updated = { ...prev };
+        delete updated[pollCode];
+        return updated;
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error unblocking date:', error);
+      throw error;
+    }
+  };
+
   // For backward compatibility - these maintain local state for UI components
   const [localPolls, setLocalPolls] = useState({ test: pollService.getTestPollData() });
 
@@ -297,7 +345,12 @@ export function PollProvider({ children }) {
       
       // New user management operations
       removeUserFromPoll,
-      getPollUsersWithStats
+      getPollUsersWithStats,
+      blockDate,
+      unblockDate,
+      
+      // New poll data operations
+      getCompletePollData
     }}>
       {children}
     </PollContext.Provider>

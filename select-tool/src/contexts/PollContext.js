@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { supabase } from '../supabaseClient';
 
 const PollContext = createContext(null);
 
@@ -95,7 +96,27 @@ export function PollProvider({ children }) {
     if (pollId === 'test') {
       return ['Alice', 'Bob', 'Charlie', 'David'];
     }
-    return [];
+    
+    // Get participants from Supabase
+    try {
+      console.log('getPollParticipants: Querying for pollId:', pollId);
+      const { data, error } = await supabase
+        .from('poll_users')
+        .select('username')
+        .eq('poll_code', pollId);
+      
+      console.log('getPollParticipants result:', { data, error });
+      
+      if (error) {
+        console.error('Error getting poll participants:', error);
+        return [];
+      }
+      
+      return data ? data.map(user => user.username) : [];
+    } catch (err) {
+      console.error('Error getting poll participants:', err);
+      return [];
+    }
   };
 
   // Add or update admin token for a poll
@@ -123,15 +144,97 @@ export function PollProvider({ children }) {
     }));
   };
 
-  const getPoll = (pollId) => {
+  const getPoll = async (pollId) => {
     console.log('Getting poll:', pollId); // Debug log
     console.log('Available polls:', polls); // Debug log
-    return pollId === 'test' ? polls.test : polls[pollId];
+    
+    // Handle test poll
+    if (pollId === 'test') {
+      return polls.test;
+    }
+    
+    // Check local state first
+    if (polls[pollId]) {
+      return polls[pollId];
+    }
+    
+    // Check Supabase database
+    try {
+      console.log('Querying Supabase for pollId:', pollId);
+      const { data, error } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('code', pollId)
+        .single();
+      
+      console.log('Supabase getPoll result:', { data, error });
+      
+      if (error) {
+        console.log('Supabase getPoll error:', error);
+        return null;
+      }
+      
+      if (data) {
+        console.log('Found poll data:', data);
+        // Convert Supabase format to our poll format
+        const pollData = {
+          id: data.code,
+          title: data.title,
+          creator: data.admin_name,
+          dates: [], // We'll load dates separately if needed
+          participants: [], // We'll load participants separately if needed
+          status: 'active'
+        };
+        
+        console.log('Converted poll data:', pollData);
+        
+        // Cache in local state
+        setPolls(prev => ({
+          ...prev,
+          [pollId]: pollData
+        }));
+        
+        return pollData;
+      }
+      
+      return null;
+    } catch (err) {
+      console.error('Error getting poll:', err);
+      return null;
+    }
   };
 
-  const validatePollCode = (pollCode) => {
+  const validatePollCode = async (pollCode) => {
     console.log('Validating:', pollCode); // Debug log
-    return pollCode === 'test' || polls[pollCode];
+    
+    // Always accept test poll
+    if (pollCode === 'test') {
+      return true;
+    }
+    
+    // Check if poll exists in local state
+    if (polls[pollCode]) {
+      return true;
+    }
+    
+    // Check Supabase database
+    try {
+      const { data, error } = await supabase
+        .from('polls')
+        .select('code')
+        .eq('code', pollCode)
+        .single();
+      
+      if (error) {
+        console.log('Supabase validation error:', error);
+        return false;
+      }
+      
+      return !!data;
+    } catch (err) {
+      console.error('Error validating poll code:', err);
+      return false;
+    }
   };
 
   return (

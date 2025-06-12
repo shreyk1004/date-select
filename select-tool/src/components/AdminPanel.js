@@ -100,8 +100,11 @@ function AdminPanel() {
 
   const handleViewPoll = () => {
     if (pollDetails) {
-      navigate(`/poll/${id}`, { 
-        state: { username: pollDetails.adminName } 
+      navigate(`/poll/${id}/blank`, { 
+        state: { 
+          adminName: pollDetails.adminName,
+          pollTitle: pollDetails.title
+        } 
       });
     }
   };
@@ -201,10 +204,10 @@ function AdminPanel() {
               </label>
               <div className="flex">
                 <div className="py-2 px-3 bg-gray-50 rounded-l border-y border-l flex-grow overflow-auto text-sm">
-                  {`${window.location.origin}/poll/${pollDetails.code}/join`}
+                  {`${window.location.origin}/poll/${pollDetails.code}`}
                 </div>
                 <button 
-                  onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+                  onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}`)}
                   className="bg-blue-500 text-white px-3 rounded-r hover:bg-blue-600"
                   title="Copy share link to clipboard"
                 >
@@ -244,7 +247,7 @@ function AdminPanel() {
           </button>
           
           <button
-            onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}/join`)}
+            onClick={() => copyToClipboard(`${window.location.origin}/poll/${pollDetails.code}`)}
             className="flex items-center justify-center bg-green-500 text-white px-4 py-3 rounded hover:bg-green-600"
           >
             <Share2 className="mr-2" size={20} />

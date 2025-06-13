@@ -244,6 +244,11 @@ export const getPollUsers = async (pollCode) => {
 // Add or ensure user exists
 export const addUserToPoll = async (pollCode, username) => {
   if (pollCode === 'test') return { success: true };
+
+  if (!pollCode || !username) {
+    console.error('addUserToPoll called with missing pollCode or username:', { pollCode, username });
+    throw new Error('Missing pollCode or username');
+  }
   
   try {
     // First check if user already exists

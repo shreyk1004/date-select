@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CalendarIcon, ClipboardCopy, Users, Share2, Plus, Trash2, UserPlus, Lock, Unlock } from 'lucide-react';
+import { CalendarIcon, ClipboardCopy, Users, Share2, Trash2, UserPlus, Lock, Unlock } from 'lucide-react';
 import { usePoll } from '../contexts/PollContext';
 
 function AdminPanel() {

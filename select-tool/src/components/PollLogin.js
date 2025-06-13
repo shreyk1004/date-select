@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePoll } from '../contexts/PollContext';
 
@@ -13,6 +13,28 @@ function PollLogin() {
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Loading poll...');
   const [submitting, setSubmitting] = useState(false);
+
+  const handleUserLogin = useCallback(async (username) => {
+    try {
+      await setPollSession(pollId, { username });
+      
+      // Store user in localStorage for persistence
+      localStorage.setItem(`poll_${pollId}_currentUser`, username);
+
+      // Get complete poll data for navigation
+      const pollData = await getPoll(pollId);
+      
+      navigate(`/poll/${pollId}/entry`, {
+        state: { 
+          username,
+          pollData
+        }
+      });
+    } catch (error) {
+      console.error('Error during login:', error);
+      alert('Failed to log in. Please try again.');
+    }
+  }, [pollId, navigate, getPoll, setPollSession]);
 
   useEffect(() => {
     const initialize = async () => {
@@ -44,7 +66,7 @@ function PollLogin() {
     };
     
     initialize();
-  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession, window.location.state?.forceLogin]);
+  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession, handleUserLogin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -75,28 +97,6 @@ function PollLogin() {
       console.error('Error joining poll:', error);
       setWarning('Error joining poll. Please try again.');
       setSubmitting(false);
-    }
-  };
-
-  const handleUserLogin = async (username) => {
-    try {
-      await setPollSession(pollId, { username });
-      
-      // Store user in localStorage for persistence
-      localStorage.setItem(`poll_${pollId}_currentUser`, username);
-
-      // Get complete poll data for navigation
-      const pollData = await getPoll(pollId);
-      
-      navigate(`/poll/${pollId}/entry`, {
-        state: { 
-          username,
-          pollData
-        }
-      });
-    } catch (error) {
-      console.error('Error during login:', error);
-      alert('Failed to log in. Please try again.');
     }
   };
 

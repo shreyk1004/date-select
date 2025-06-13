@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { usePoll } from '../contexts/PollContext';
 
 function PollLogin() {
-  const { id: pollId } = useParams();
+  const { pollId } = useParams();
   const navigate = useNavigate();
-  const { getPoll, getPollSession, setPollSession, getPollUsers, addUserToPoll } = usePoll();
+  const { getPoll, getPollSession, getPollUsers, setPollSession, addUserToPoll } = usePoll();
+  const [existingUsers, setExistingUsers] = useState([]);
   const [selectedOption, setSelectedOption] = useState('');
   const [customName, setCustomName] = useState('');
-  const [existingUsers, setExistingUsers] = useState([]);
   const [warning, setWarning] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Loading poll...');
@@ -17,70 +17,38 @@ function PollLogin() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // For test poll, handle specially
-        if (pollId === 'test') {
-          setExistingUsers(['Alice', 'Bob', 'Charlie', 'David']);
-          setLoading(false);
+        // Get poll data
+        const pollData = await getPoll(pollId);
+        if (!pollData) {
+          setLoadingMessage('Poll not found');
           return;
         }
 
-        // Get poll data to verify it exists
-        const poll = await getPoll(pollId);
-        
-        if (!poll) {
-          navigate('/404', { replace: true });
-          return;
-        }
-
-        // Load existing users
+        // Get existing users
         const users = await getPollUsers(pollId);
-        setExistingUsers(users);
+        setExistingUsers(users.map(u => u.username));
         
         // Check for auto-login (unless forced to show login)
-        const forceLogin = location.state?.forceLogin;
+        const forceLogin = window.location.state?.forceLogin;
         const storedUser = localStorage.getItem(`poll_${pollId}_currentUser`);
         
-        if (!forceLogin && storedUser && users.includes(storedUser)) {
-          // Auto-login with stored user
-          console.log('Auto-logging in user:', storedUser);
-          setLoadingMessage(`Logging you in as ${storedUser}...`);
-          navigate(`/poll/${pollId}/entry`, {
-            state: { 
-              username: storedUser,
-              pollData: poll
-            }
-          });
-          return;
+        if (!forceLogin && storedUser) {
+          await handleUserLogin(storedUser);
         }
-        
-        setLoading(false);
       } catch (error) {
-        console.error('Error initializing poll login:', error);
-        navigate('/404', { replace: true });
+        console.error('Error initializing:', error);
+        setLoadingMessage('Error loading poll');
+      } finally {
+        setLoading(false);
       }
     };
-
+    
     initialize();
-  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession, location.state?.forceLogin]);
-
-  // Don't render anything while loading
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">{loadingMessage}</div>
-      </div>
-    );
-  }
+  }, [pollId, navigate, getPoll, getPollSession, getPollUsers, setPollSession, window.location.state?.forceLogin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const username = selectedOption === 'other' ? customName : selectedOption;
-    
-    console.log('PollLogin handleSubmit:', {
-      selectedOption,
-      customName,
-      finalUsername: username
-    });
     
     if (!username.trim()) {
       setWarning('Please enter a username');
@@ -116,7 +84,7 @@ function PollLogin() {
       
       // Store user in localStorage for persistence
       localStorage.setItem(`poll_${pollId}_currentUser`, username);
-      
+
       // Get complete poll data for navigation
       const pollData = await getPoll(pollId);
       
@@ -131,6 +99,15 @@ function PollLogin() {
       alert('Failed to log in. Please try again.');
     }
   };
+
+  // Don't render anything while loading
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">{loadingMessage}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center">

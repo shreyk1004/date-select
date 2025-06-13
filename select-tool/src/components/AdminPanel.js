@@ -105,46 +105,42 @@ function AdminPanel() {
   };
 
   const handleRemoveUser = async (username) => {
-    if (!confirm(`Are you sure you want to remove "${username}"? This will delete all their votes and comments.`)) {
-      return;
-    }
-    
-    setUserOperationLoading(true);
-    try {
-      await removeUserFromPoll(id, username);
-      
-      // Refresh user list
-      const updatedUsers = await getPollUsersWithStats(id);
-      setUsers(updatedUsers);
-      
-      alert(`User "${username}" removed successfully!`);
-    } catch (error) {
-      console.error('Error removing user:', error);
-      alert(`Error removing user: ${error.message}`);
-    } finally {
-      setUserOperationLoading(false);
+    if (window.confirm(`Are you sure you want to remove "${username}"? This will delete all their votes and comments.`)) {
+      setUserOperationLoading(true);
+      try {
+        await removeUserFromPoll(id, username);
+        
+        // Refresh user list
+        const updatedUsers = await getPollUsersWithStats(id);
+        setUsers(updatedUsers);
+        
+        alert(`User "${username}" removed successfully!`);
+      } catch (error) {
+        console.error('Error removing user:', error);
+        alert(`Error removing user: ${error.message}`);
+      } finally {
+        setUserOperationLoading(false);
+      }
     }
   };
 
   const handleBlockDate = async (date) => {
-    if (!confirm(`Are you sure you want to block the date ${new Date(date).toLocaleDateString()}? Users won't be able to vote or comment on this date.`)) {
-      return;
-    }
-    
-    setDateOperationLoading(true);
-    try {
-      await blockDate(id, date);
-      
-      // Refresh dates list
-      const updatedPollData = await getCompletePollData(id);
-      setDates(updatedPollData.dates);
-      
-      alert(`Date ${new Date(date).toLocaleDateString()} blocked successfully!`);
-    } catch (error) {
-      console.error('Error blocking date:', error);
-      alert(`Error blocking date: ${error.message}`);
-    } finally {
-      setDateOperationLoading(false);
+    if (window.confirm(`Are you sure you want to block the date ${new Date(date).toLocaleDateString()}? Users won't be able to vote or comment on this date.`)) {
+      setDateOperationLoading(true);
+      try {
+        await blockDate(id, date);
+        
+        // Refresh dates list
+        const updatedPollData = await getCompletePollData(id);
+        setDates(updatedPollData.dates);
+        
+        alert(`Date ${new Date(date).toLocaleDateString()} blocked successfully!`);
+      } catch (error) {
+        console.error('Error blocking date:', error);
+        alert(`Error blocking date: ${error.message}`);
+      } finally {
+        setDateOperationLoading(false);
+      }
     }
   };
 
